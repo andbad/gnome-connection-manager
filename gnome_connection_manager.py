@@ -1305,6 +1305,8 @@ class Wmain(SimpleGladeApp):
             v.connect('button_press_event', self.on_terminal_click)
             v.connect('key_press_event', self.on_terminal_keypress)
             v.connect('selection-changed', self.on_terminal_selection)
+            v.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+            v.connect('scroll-event', self.on_terminal_scroll)
 
             if conf.TRANSPARENCY > 0 and self.wMain.transparency:
                 #v.set_opacity(1 - (conf.TRANSPARENCY / 100)) #posibly a bug in gtk3, set_opacity only works if parent is transparent too (worked just fine in gtk2),
@@ -1739,6 +1741,28 @@ class Wmain(SimpleGladeApp):
         cp.write(f)
         f.close()
         os.rename(CONFIG_FILE + ".tmp", CONFIG_FILE)
+
+    def on_terminal_scroll(self, terminal, event):
+        # CTRL+scroll cambia el tamano de letra solo del terminal bajo el puntero
+        if not event.state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+        gsdelta = event.get_scroll_deltas()
+        if gsdelta[0]:
+            bigger = gsdelta[2] < 0
+        else:
+            gsdir = event.get_scroll_direction()
+            if gsdir[1] == Gdk.ScrollDirection.UP:
+                bigger = True
+            elif gsdir[1] == Gdk.ScrollDirection.DOWN:
+                bigger = False
+            else:
+                return False
+        fd = terminal.get_font()
+        size = fd.get_size() // 1024
+        size = min(72, max(6, size + (1 if bigger else -1)))
+        fd.set_size(size * 1024)
+        terminal.set_font(fd)
+        return True
 
     def on_tab_scroll(self, notebook, event):
         # According to https://sourcecodequery.com/example-method/Gdk.Event.get_scroll_deltas

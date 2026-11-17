@@ -1400,3 +1400,35 @@ msgstr "_Bearbeiten"
 #: ../gnome-connection-manager.glade:308
 msgid "_Servidores"
 msgstr "_Server"
+
+#: session-save
+msgid "Guardar estado de la _sesión"
+msgstr "Sitzungszustand _speichern"
+
+#: session-save
+msgid "Restaurar al iniciar"
+msgstr "Beim Start wiederherstellen"
+
+#: session-save
+msgid "Borrar sesión guardada"
+msgstr "Gespeicherte Sitzung löschen"
+
+#: session-save
+msgid "Sesion guardada: %d consolas. Se restaurara al iniciar GCM."
+msgstr "Sitzung gespeichert: %d Konsolen. Werden beim GCM-Start wiederhergestellt."
+
+#: session-save
+msgid "Error al restaurar la sesion"
+msgstr "Fehler beim Wiederherstellen der Sitzung"
+
+#: session-save
+msgid "Guardar la disposicion actual de consolas y ventanas para restaurarla al iniciar"
+msgstr "Aktuelle Konsolen- und Fensteranordnung zum Wiederherstellen beim Start speichern"
+
+#: session-save
+msgid "Restaurar la ultima sesion guardada al iniciar GCM"
+msgstr "Zuletzt gespeicherte Sitzung beim GCM-Start wiederherstellen"
+
+#: session-save
+msgid "Borrar la sesion guardada"
+msgstr "Gespeicherte Sitzung löschen"

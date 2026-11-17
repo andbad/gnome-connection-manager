@@ -1312,3 +1312,35 @@ msgstr "_Editar"
 #: ../gnome-connection-manager.glade:308
 msgid "_Servidores"
 msgstr "_Servidores"
+
+#: session-save
+msgid "Guardar estado de la _sesión"
+msgstr "Salvar estado da _sessão"
+
+#: session-save
+msgid "Restaurar al iniciar"
+msgstr "Restaurar ao iniciar"
+
+#: session-save
+msgid "Borrar sesión guardada"
+msgstr "Excluir sessão salva"
+
+#: session-save
+msgid "Sesion guardada: %d consolas. Se restaurara al iniciar GCM."
+msgstr "Sessão salva: %d consoles. Serão restauradas ao iniciar o GCM."
+
+#: session-save
+msgid "Error al restaurar la sesion"
+msgstr "Erro ao restaurar a sessão"
+
+#: session-save
+msgid "Guardar la disposicion actual de consolas y ventanas para restaurarla al iniciar"
+msgstr "Salvar o layout atual de consoles e janelas para restaurar ao iniciar"
+
+#: session-save
+msgid "Restaurar la ultima sesion guardada al iniciar GCM"
+msgstr "Restaurar a última sessão salva ao iniciar o GCM"
+
+#: session-save
+msgid "Borrar la sesion guardada"
+msgstr "Excluir a sessão salva"

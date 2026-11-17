@@ -1329,3 +1329,35 @@ msgstr "Отключить чередование полос в окне хос�
 #: ../gnome_connection_manager.py:2850
 msgid "Título dinámico"
 msgstr "Динамический заголовок"
+
+#: session-save
+msgid "Guardar estado de la _sesión"
+msgstr "Сохранить состояние _сессии"
+
+#: session-save
+msgid "Restaurar al iniciar"
+msgstr "Восстанавливать при запуске"
+
+#: session-save
+msgid "Borrar sesión guardada"
+msgstr "Удалить сохранённую сессию"
+
+#: session-save
+msgid "Sesion guardada: %d consolas. Se restaurara al iniciar GCM."
+msgstr "Сессия сохранена: %d консолей. Будут восстановлены при запуске GCM."
+
+#: session-save
+msgid "Error al restaurar la sesion"
+msgstr "Ошибка восстановления сессии"
+
+#: session-save
+msgid "Guardar la disposicion actual de consolas y ventanas para restaurarla al iniciar"
+msgstr "Сохранить текущее расположение консолей и окон для восстановления при запуске"
+
+#: session-save
+msgid "Restaurar la ultima sesion guardada al iniciar GCM"
+msgstr "Восстанавливать последнюю сохранённую сессию при запуске GCM"
+
+#: session-save
+msgid "Borrar la sesion guardada"
+msgstr "Удалить сохранённую сессию"

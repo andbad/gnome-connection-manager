@@ -1465,3 +1465,35 @@ msgstr "_편집"
 #: ../gnome-connection-manager.glade:308
 msgid "_Servidores"
 msgstr "_서버들"
+
+#: session-save
+msgid "Guardar estado de la _sesión"
+msgstr "세션 상태 저장(_S)"
+
+#: session-save
+msgid "Restaurar al iniciar"
+msgstr "시작 시 복원"
+
+#: session-save
+msgid "Borrar sesión guardada"
+msgstr "저장된 세션 삭제"
+
+#: session-save
+msgid "Sesion guardada: %d consolas. Se restaurara al iniciar GCM."
+msgstr "세션 저장됨: 콘솔 %d개. GCM 시작 시 복원됩니다."
+
+#: session-save
+msgid "Error al restaurar la sesion"
+msgstr "세션 복원 오류"
+
+#: session-save
+msgid "Guardar la disposicion actual de consolas y ventanas para restaurarla al iniciar"
+msgstr "시작 시 복원하기 위해 현재 콘솔 및 창 레이아웃 저장"
+
+#: session-save
+msgid "Restaurar la ultima sesion guardada al iniciar GCM"
+msgstr "GCM 시작 시 마지막 저장된 세션 복원"
+
+#: session-save
+msgid "Borrar la sesion guardada"
+msgstr "저장된 세션 삭제"

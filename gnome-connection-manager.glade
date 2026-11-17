@@ -2115,6 +2115,42 @@ Ej: ##D=1000&lt;/span&gt;</property>
                       </object>
                     </child>
                     <child>
+                      <object class="GtkMenuItem" id="session_save">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="tooltip-text" translatable="yes">Guardar la disposicion actual de consolas y ventanas para restaurarla al iniciar</property>
+                        <property name="label" translatable="yes">Guardar estado de la _sesión</property>
+                        <property name="use-underline">True</property>
+                        <signal name="activate" handler="on_session_save_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCheckMenuItem" id="session_restore">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="tooltip-text" translatable="yes">Restaurar la ultima sesion guardada al iniciar GCM</property>
+                        <property name="label" translatable="yes">Restaurar al iniciar</property>
+                        <property name="use-underline">True</property>
+                        <signal name="toggled" handler="on_session_restore_toggled" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkMenuItem" id="session_clear">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="tooltip-text" translatable="yes">Borrar la sesion guardada</property>
+                        <property name="label" translatable="yes">Borrar sesión guardada</property>
+                        <property name="use-underline">True</property>
+                        <signal name="activate" handler="on_session_clear_activate" swapped="no"/>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparatorMenuItem">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                      </object>
+                    </child>
+                    <child>
                       <object class="GtkMenuItem">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>

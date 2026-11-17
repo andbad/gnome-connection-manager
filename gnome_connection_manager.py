@@ -41,6 +41,7 @@
 from __future__ import with_statement
 import os
 import operator
+import json
 import sys
 import base64
 import time
@@ -49,6 +50,7 @@ import traceback
 import re
 import shlex
 import cairo
+from urllib.parse import quote, unquote
 
 try:
     import gi
@@ -194,6 +196,8 @@ class conf():
     VERSION = 0
     UPDATE_TITLE = 0
     APP_TITLE = app_name
+    SESSION_RESTORE = False
+    SESSION_DATA = None
 
 def msgbox(text, parent=None):
     msgBox = Gtk.MessageDialog(parent=parent, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=text)
@@ -486,8 +490,18 @@ class Wmain(SimpleGladeApp):
 
         self.get_widget('txtSearch').set_placeholder_text(_('buscar...'))
 
-        if conf.STARTUP_LOCAL:
+        session_restored = False
+        if conf.SESSION_RESTORE and conf.SESSION_DATA:
+            try:
+                self.restore_session(json.loads(conf.SESSION_DATA))
+                session_restored = True
+            except Exception:
+                traceback.print_exc()
+                conf.SESSION_RESTORE = False
+                conf.SESSION_DATA = None
+        if not session_restored and conf.STARTUP_LOCAL:
             self.addTab(self.nbConsole,'local')
+        self.refresh_session_menu()
 
     def update_visual(self):
         window = self.get_widget("wMain")
@@ -1515,6 +1529,15 @@ class Wmain(SimpleGladeApp):
             conf.TERM = cp.get("options", "term")
             conf.UPDATE_TITLE = cp.getboolean("options", "update-title")
             conf.APP_TITLE = cp.get("options", "app-title") or app_name
+
+            try:
+                conf.SESSION_RESTORE = cp.getboolean("session", "restore")
+            except:
+                pass
+            try:
+                conf.SESSION_DATA = cp.get("session", "data").replace('\\n', '\n')
+            except:
+                pass
         except:
             print ("%s: %s" % (_("Entrada invalida en archivo de configuracion"), sys.exc_info()[1]))
 
@@ -1745,10 +1768,246 @@ class Wmain(SimpleGladeApp):
                 cp.set("shortcuts", "command%d" % (i), shortcuts[s].replace('\n','\\n'))
                 i=i+1
 
+        cp.add_section("session")
+        cp.set("session", "restore", conf.SESSION_RESTORE)
+        if conf.SESSION_DATA:
+            # json con \n: configparser no soporta multilineas, no lo inserta aqui
+            data = conf.SESSION_DATA.replace('\n', '\\n')
+            cp.set("session", "data", data)
+
         f = open(CONFIG_FILE + ".tmp", "w")
         cp.write(f)
         f.close()
         os.rename(CONFIG_FILE + ".tmp", CONFIG_FILE)
+
+    #-- sesion {
+    def find_terminal_in(self, widget):
+        if isinstance(widget, Vte.Terminal):
+            return widget
+        if hasattr(widget, "get_children"):
+            for c in widget.get_children():
+                t = self.find_terminal_in(c)
+                if t:
+                    return t
+        return None
+
+    def capture_pane(self, widget):
+        # serializa recursivamente el arbol de notebooks/paned de la consola
+        if isinstance(widget, Gtk.Notebook):
+            tabs = []
+            for page in widget.get_children():
+                term = self.find_terminal_in(page)
+                if term is None or not hasattr(term, "host"):
+                    continue
+                host = term.host
+                if host.host == '' or host.host == None:
+                    ref = 'local'
+                elif any(h.group == host.group and h.name == host.name for g in groups for h in groups.get(g, [])):
+                    ref = '%s/%s' % (quote(host.group, safe=''), quote(host.name, safe=''))
+                else:
+                    continue # consola temporal (host no guardado): no es restaurable
+                tab = {'ref': ref}
+                # guardar el zoom solo si difiere del tamano efectivo del host:
+                # font_size del host > tamano de la fuente global > default de VTE
+                if host.font_size != '' and host.font_size != None:
+                    default_size = int(host.font_size)
+                else:
+                    fd_global = Pango.FontDescription(conf.FONT if len(conf.FONT)>0 else 'monospace')
+                    default_size = fd_global.get_size() // 1024
+                size = term.get_font().get_size() // 1024
+                if size != default_size:
+                    tab['zoom'] = size
+                tabs.append(tab)
+            cur = widget.get_current_page()
+            nb = {'type': 'notebook', 'tabs': tabs, 'current': cur if 0 <= cur < len(tabs) else 0}
+            return nb
+        if isinstance(widget, Gtk.Paned):
+            children = widget.get_children()
+            if len(children) != 2:
+                return None
+            c0 = self.capture_pane(children[0])
+            c1 = self.capture_pane(children[1])
+            if c0 is None or c1 is None:
+                return None
+            pane = {'type': 'hpaned' if isinstance(widget, Gtk.HPaned) else 'vpaned',
+                    'position': widget.get_position(), 'children': [c0, c1]}
+            return pane
+        return None
+
+    def capture_session(self):
+        root = self.hpMain.get_children()[1]
+        tree = self.capture_pane(root)
+        window = self.get_widget("wMain")
+        maximized = 1 if window.is_maximized() else 0
+        width, height = window.get_size()
+        px, py = window.get_position()
+        return json.dumps({
+            'tree': tree,
+            'maximized': maximized,
+            'width': width, 'height': height,
+            'posx': px, 'posy': py,
+            'panel-width': self.hpMain.get_position(),
+            'show-panel': 1 if conf.SHOW_PANEL else 0,
+            'show-toolbar': 1 if conf.SHOW_TOOLBAR else 0,
+        })
+
+    def create_session_notebook(self):
+        nb = Gtk.Notebook()
+        nb.set_group_name("11")
+        nb.set_property("scrollable", True)
+        nb.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        nb.connect('button_press_event', self.on_double_click, None)
+        nb.connect('page_removed', self.on_page_removed)
+        nb.connect("page-added", self.on_page_added)
+        nb.connect('switch-page', self.on_tab_focus)
+        nb.connect('scroll-event', self.on_tab_scroll)
+        return nb
+
+    def open_session_tab(self, notebook, ref, zoom=None):
+        host = None
+        if ref == 'local':
+            host = 'local'
+        else:
+            i = ref.rfind('/')
+            if i != -1:
+                group = unquote(ref[:i])
+                name = unquote(ref[i+1:])
+                for h in groups.get(group, []):
+                    if h.name == name:
+                        host = h
+                        break
+        if host is None:
+            return None
+        self.addTab(notebook, host)
+        page = notebook.get_children()[-1]
+        term = self.find_terminal_in(page)
+        if zoom and term:
+            fd = term.get_font()
+            fd.set_size(int(zoom) * 1024)
+            term.set_font(fd)
+        return term
+
+    def restore_session_tree(self, spec):
+        # los notebooks se construyen usando el nbConsole existente para el primero,
+        # asi todas las acciones que apuntan a self.nbConsole siguen funcionando
+        if spec['type'] == 'notebook':
+            if not self._session_nb_used:
+                self._session_nb_used = True
+                nb = self.nbConsole
+                if nb.get_parent() is not None:
+                    nb.get_parent().remove(nb)
+            else:
+                nb = self.create_session_notebook()
+            self._session_nbs.append(nb)
+            for tab in spec['tabs']:
+                self.open_session_tab(nb, tab['ref'], tab.get('zoom'))
+            if spec.get('current') is not None and spec['current'] >= 0:
+                nb.set_current_page(min(spec['current'], len(nb.get_children())-1) if nb.get_children() else -1)
+            return nb
+        if spec['type'] in ('hpaned', 'vpaned'):
+            hp = Gtk.HPaned() if spec['type']=='hpaned' else Gtk.VPaned()
+            hp.set_wide_handle(True)
+            c0 = self.restore_session_tree(spec['children'][0])
+            c1 = self.restore_session_tree(spec['children'][1])
+            if c0 is None or c1 is None:
+                return c0 or c1
+            hp.add1(c0)
+            hp.add2(c1)
+            hp._session_position = spec.get('position', 0)
+            hp.set_position(hp._session_position)
+            return hp
+        return None
+
+    def reapply_pane_positions(self, widget):
+        if isinstance(widget, Gtk.Paned):
+            widget.set_position(widget._session_position)
+            for c in widget.get_children():
+                self.reapply_pane_positions(c)
+
+    def restore_session(self, session):
+        try:
+            self._session_nb_used = False
+            self._session_nbs = []
+            root = self.hpMain.get_children()[1]
+            # NB: restore_session_tree puede reutilizar nbConsole quitandolo de su
+            # padre (que a veces es el mismo root), por eso se construye el nuevo
+            # tree ANTES de remover/destruir el root viejo
+            widget = self.restore_session_tree(session['tree'])
+            if widget is None:
+                return
+            if widget.get_parent() is not None:
+                widget.get_parent().remove(widget)
+            if root.get_parent() is not None:
+                self.hpMain.remove(root)
+            # lo que quedo viejo (paned/notebooks vacios o no reutilizados) se suelta
+            # sin destroy explicito: al no tener padre ni referencias GTK lo libera el GC,
+            # evitando destruir widgets que el nuevo tree pudo reutilizar
+            self.hpMain.add(widget)
+            widget.show_all()
+            if session.get('panel-width'):
+                conf.LEFT_PANEL_WIDTH = int(session['panel-width'])
+            if 'show-panel' in session:
+                self.set_panel_visible(bool(session['show-panel']))
+            if 'show-toolbar' in session:
+                self.set_toolbar_visible(bool(session['show-toolbar']))
+            window = self.get_widget("wMain")
+            if session.get('maximized'):
+                window.maximize()
+            else:
+                w = int(session.get('width', 0)); h = int(session.get('height', 0))
+                if w > 0 and h > 0:
+                    window.resize(w, h)
+                px = int(session.get('posx', -1)); py = int(session.get('posy', -1))
+                if px >= 0 and py >= 0:
+                    window.move(px, py)
+            GLib.timeout_add(400, lambda : self.hpMain.set_position(conf.LEFT_PANEL_WIDTH))
+            # las posiciones internas de los paned se re-aplican una vez que
+            # la interfaz fue asignada (antes set_position no tiene efecto)
+            GLib.timeout_add(500, lambda : self.reapply_pane_positions(widget) or False)
+            self.get_widget("session_restore").set_active(conf.SESSION_RESTORE)
+            self.get_widget("session_clear").set_sensitive(True)
+        except Exception:
+            traceback.print_exc()
+            msgbox("%s: %s" % (_("Error al restaurar la sesion"), sys.exc_info()[1]))
+
+    def refresh_session_menu(self):
+        self.get_widget("session_restore").set_active(conf.SESSION_RESTORE)
+        self.get_widget("session_clear").set_sensitive(conf.SESSION_DATA is not None)
+
+    #-- Wmain.on_session_save_activate {
+    def on_session_save_activate(self, widget, *args):
+        conf.SESSION_DATA = self.capture_session()
+        conf.SESSION_RESTORE = True
+        self.writeConfig()
+        self.refresh_session_menu()
+        nbs = []
+        def count(w):
+            if isinstance(w, Gtk.Notebook):
+                nbs.append(len(w.get_children()))
+            if hasattr(w, "get_children"):
+                for c in w.get_children():
+                    count(c)
+        count(self.hpMain.get_children()[1])
+        msgbox(_("Sesion guardada: %d consolas. Se restaurara al iniciar GCM.") % (sum(nbs) if nbs else 0), self.window)
+    #-- Wmain.on_session_save_activate }
+
+    #-- Wmain.on_session_restore_toggled {
+    def on_session_restore_toggled(self, widget, *args):
+        conf.SESSION_RESTORE = widget.get_active()
+        if conf.SESSION_RESTORE and conf.SESSION_DATA is None:
+            conf.SESSION_DATA = self.capture_session()
+        self.writeConfig()
+        self.refresh_session_menu()
+    #-- Wmain.on_session_restore_toggled }
+
+    #-- Wmain.on_session_clear_activate {
+    def on_session_clear_activate(self, widget, *args):
+        conf.SESSION_DATA = None
+        conf.SESSION_RESTORE = False
+        self.writeConfig()
+        self.refresh_session_menu()
+    #-- Wmain.on_session_clear_activate }
+    #-- sesion }
 
     def on_terminal_scroll(self, terminal, event):
         # CTRL+scroll cambia el tamano de letra solo del terminal bajo el puntero

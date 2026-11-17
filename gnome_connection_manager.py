@@ -1944,6 +1944,7 @@ class Wmain(SimpleGladeApp):
             self.hpMain.previous_position = self.hpMain.get_position()
             GLib.timeout_add(200, lambda : self.hpMain.set_position(0))
         self.get_widget("show_panel").set_active(visibility)
+        self.get_widget("show_panel_btn").set_active(visibility)
         conf.SHOW_PANEL = visibility
 
     def set_toolbar_visible(self, visibility):

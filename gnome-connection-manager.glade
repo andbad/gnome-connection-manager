@@ -2277,6 +2277,14 @@ Ej: ##D=1000&lt;/span&gt;</property>
                       </object>
                     </child>
                     <child>
+                      <object class="GtkCheckMenuItem" id="show_files">
+                        <property name="visible">True</property>
+                        <property name="can-focus">False</property>
+                        <property name="label" translatable="yes">Mostrar Administrador de Archivos</property>
+                        <property name="use-underline">True</property>
+                        <property name="active">False</property>
+                        <signal name="toggled" handler="on_show_files_toggled" swapped="no"/>
+                      </object>
                       <object class="GtkCheckMenuItem" id="show_panel">
                         <property name="visible">True</property>
                         <property name="can-focus">False</property>

@@ -162,6 +162,7 @@ bindtextdomain(domain_name, locale_dir)
 
 groups={}
 shortcuts={}
+wMain = None
 
 enc_passwd=''
 
@@ -198,6 +199,10 @@ class conf():
     APP_TITLE = app_name
     SESSION_RESTORE = False
     SESSION_DATA = None
+    SHOW_FILES = False
+    PANEL_ORDER = 0          # 0: servidores arriba, 1: archivos arriba
+    FILE_PANEL_POS = -1
+    KEY_MISMATCH = False     # clave actual no coincide con la de las passw guardadas
 
 def msgbox(text, parent=None):
     msgBox = Gtk.MessageDialog(parent=parent, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=text)
@@ -293,6 +298,38 @@ def get_username():
 def get_password():
     return get_username() + enc_passwd
 
+# id de la clave actual para detectar cambios de clave que corromperian passw
+KEY_ID = None
+KEY_ID_OLD = None
+# al detectar clave incompatible: no re-escribir passw en texto cifrado
+# (conserva el texto cifrado existente hasta que la clave vuelva a coincidir)
+key_recovered = False
+
+def key_id(key=None):
+    import hashlib
+    return hashlib.sha256((key if key is not None else enc_passwd).encode('utf-8')).hexdigest()[:16]
+
+def check_config_key(cp):
+    # devuelve True si se puede seguir escribiendo el archivo de configuracion
+    global KEY_ID, KEY_ID_OLD, key_recovered
+    if not os.path.exists(KEY_FILE):
+        return True
+    KEY_ID = key_id()
+    try:
+        stored = cp.get("options", "key-id")
+    except Exception:
+        stored = None
+    if stored is None:
+        # primera version con proteccion: se adopta la clave actual
+        return True
+    if stored == KEY_ID:
+        return True
+    KEY_ID_OLD = stored
+    msgbox(_("Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo).") % (KEY_FILE),
+            getattr(wMain, 'window', None))
+    key_recovered = True
+    return False
+
 def load_encryption_key():
     global enc_passwd
     try:
@@ -307,12 +344,14 @@ def load_encryption_key():
 
 def initialise_encyption_key():
     global enc_passwd
-    import random
-    x = int(str(random.random())[2:])
-    y = int(str(random.random())[2:])
-    enc_passwd = "%x" % (x*y)
+    # JAMAS sobrescribir una llave existente: destruiria las passw guardadas
+    if os.path.exists(KEY_FILE):
+        load_encryption_key()
+        return
+    import secrets
+    enc_passwd = secrets.token_hex(16)
     try:
-        with os.fdopen(os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT, 0o600), 'w') as f:
+        with os.fdopen(os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as f:
             f.write(enc_passwd)
     except:
         msgbox("Error initialising key_file")
@@ -1577,6 +1616,12 @@ class Wmain(SimpleGladeApp):
         global shortcuts
         shortcuts = scuts
 
+        # proteccion ante cambio de clave de cifrado
+        if check_config_key(cp):
+            conf.KEY_MISMATCH = False
+        else:
+            conf.KEY_MISMATCH = True
+
         #Leer lista de hosts
         groups={}
         for section in cp.sections():
@@ -1736,6 +1781,13 @@ class Wmain(SimpleGladeApp):
         cp.set("options", "auto-copy-selection", conf.AUTO_COPY_SELECTION)
         cp.set("options", "log-path", conf.LOG_PATH)
         cp.set("options", "version", app_fileversion)
+        # la clave asociada a las passw: si hay incompatibilidad se conserva el id
+        # viejo (asi la proteccion sigue activa), si no se registra la actual
+        if conf.KEY_MISMATCH:
+            if KEY_ID_OLD:
+                cp.set("options", "key-id", KEY_ID_OLD)
+        elif KEY_ID:
+            cp.set("options", "key-id", KEY_ID)
         cp.set("options", "auto-close-tab", conf.AUTO_CLOSE_TAB)
         cp.set("options", "cycle-tabs", conf.CYCLE_TABS)
         cp.set("options", "update-title", conf.UPDATE_TITLE)
@@ -2668,6 +2720,9 @@ class Host():
             self.delete_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
             self.term = self.get_arg(args, '')
             self.font_size = self.get_arg(args, '')
+            # texto cifrado original cuando la passw no pudo descifrarse (clave
+            # incorrecta): se conserva para no destruir datos al re-escribir
+            self.raw_pass = self.get_arg(args, None)
         except:
             pass
 
@@ -2684,7 +2739,7 @@ class Host():
         return ",".join(self.tunnel)
 
     def clone(self):
-        return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term, self.font_size)
+        return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term, self.font_size, self.raw_pass)
 
 class HostUtils:
     @staticmethod
@@ -2702,7 +2757,14 @@ class HostUtils:
         name = cp.get(section, "name")
         host = cp.get(section, "host")
         user = cp.get(section, "user")
-        password = decrypt(pwd, cp.get(section, "pass"))
+        password_raw = cp.get(section, "pass")
+        password = decrypt(pwd, password_raw)
+        # si la clave es incorrecta decrypt devuelve basura/vacio y el texto
+        # cifrado original se conserva para no destruirlo al volver a guardar
+        raw_pass = None
+        if password_raw.strip()!='' and conf.KEY_MISMATCH:
+            password = ''
+            raw_pass = password_raw
         description = HostUtils.get_val(cp, section, "description", "")
         private_key = HostUtils.get_val(cp, section, "private_key", "")
         port = HostUtils.get_val(cp, section, "port", "22")
@@ -2722,7 +2784,7 @@ class HostUtils:
         delete_key = int(HostUtils.get_val(cp, section, "delete-key", int(Vte.EraseBinding.AUTO)))
         term = HostUtils.get_val(cp, section, "term", "")
         font_size = HostUtils.get_val(cp, section, "font-size", "")
-        h = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size)
+        h = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size, raw_pass)
         return h
 
     @staticmethod
@@ -2734,7 +2796,12 @@ class HostUtils:
         cp.set(section, "description", host.description)
         cp.set(section, "host", host.host)
         cp.set(section, "user", host.user)
-        cp.set(section, "pass", encrypt(pwd, host.password))
+        # con clave incompatible y passw sin cambios: conservar el texto cifrado
+        # original en lugar de re-cifrar una cadena vacia (destructivo)
+        if host.raw_pass not in (None, '') and host.password == '':
+            cp.set(section, "pass", host.raw_pass)
+        else:
+            cp.set(section, "pass", encrypt(pwd, host.password))
         cp.set(section, "private_key", host.private_key)
         cp.set(section, "port", host.port)
         cp.set(section, "tunnel", host.tunnel_as_string())
@@ -2845,6 +2912,7 @@ class Whost(SimpleGladeApp):
     #-- Whost custom methods {
     def init(self, group, host=None):
         self.cmbGroup.get_child().set_text(group)
+        self.orig_host = host
         if host == None:
             self.isNew = True
             return
@@ -2993,7 +3061,13 @@ class Whost(SimpleGladeApp):
         else:
             font_size = str(int(self.txtFontSize.get_value()))
 
-        host = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size)
+        # al editar un host con passw no-descifrable y no modificar el campo,
+        # conservar el texto cifrado original
+        raw_pass = None
+        if password == '' and getattr(self, 'orig_host', None) is not None:
+            raw_pass = getattr(self.orig_host, 'raw_pass', None)
+
+        host = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size, raw_pass)
 
         try:
             #Guardar

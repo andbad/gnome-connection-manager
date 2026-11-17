@@ -1361,3 +1361,7 @@ msgstr "Восстанавливать последнюю сохранённую
 #: session-save
 msgid "Borrar la sesion guardada"
 msgstr "Удалить сохранённую сессию"
+
+#: key-protection
+msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
+msgstr "Текущий ключ шифрования не совпадает с ключом сохранённых паролей.\nПароли остаются интактными в файле; изменения не будут сохранены, пока ключ не совпадёт.\nВосстановите оригинальный ключ из '%s' (например из резервной копии)."

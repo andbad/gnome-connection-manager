@@ -1343,3 +1343,7 @@ msgstr "Przywracaj ostatnią zapisaną sesję przy starcie GCM"
 #: session-save
 msgid "Borrar la sesion guardada"
 msgstr "Usuń zapisaną sesję"
+
+#: key-protection
+msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
+msgstr "Biezacy klucz szyfrowania nie zgadza sie z kluczem uzytym do zapisu hasel.\nHasla pozostana nietkniete w pliku; zadne zmiany nie zostana zapisane, dopoki klucz sie nie zgadza.\nOdzyskaj oryginalny klucz z '%s' (na przyklad z kopii zapasowej)."

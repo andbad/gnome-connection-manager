@@ -1525,3 +1525,7 @@ msgstr "Restore the last saved session on GCM startup"
 #: session-save
 msgid "Borrar la sesion guardada"
 msgstr "Delete the saved session"
+
+#: key-protection
+msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
+msgstr "The current encryption key doesn't match the one used to save the passwords.\nPasswords are kept intact in the file and no changes will be saved until the key matches.\nRecover the original key from '%s' (for example from a backup)."

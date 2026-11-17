@@ -1497,3 +1497,7 @@ msgstr "GCM 시작 시 마지막 저장된 세션 복원"
 #: session-save
 msgid "Borrar la sesion guardada"
 msgstr "저장된 세션 삭제"
+
+#: key-protection
+msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
+msgstr "현재 가얼기 키가 밀번번호 저장에 사용된 키와 일치하지 않습니다.\n밀번번호는 파일에 그대로 유지되며, 키가 일치할 때까지 변경사항은 저장되지 않습니다.\n원래 키를 '%s'에서 복구하십시오 (예: 백업)."

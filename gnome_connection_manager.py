@@ -276,7 +276,12 @@ def get_key_name(event):
         name = name + "ALT+"
     if event.state & Gdk.ModifierType.SUPER_MASK:
         name = name + "SUPER+"
-    return name + Gdk.keyval_name(event.keyval).upper()
+    key = Gdk.keyval_name(event.keyval).upper()
+    # shift+tab genera el keysym ISO_Left_Tab: normalizarlo a TAB para que
+    # coincida con los shortcuts configurados (ej: CTRL+SHIFT+TAB)
+    if key == "ISO_LEFT_TAB":
+        key = "TAB"
+    return name + key
 
 def get_username():
     return os.getenv('USER') or os.getenv('LOGNAME') or os.getenv('USERNAME')

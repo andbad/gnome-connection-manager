@@ -1293,6 +1293,14 @@ class Wmain(SimpleGladeApp):
             else:
                 v.set_font(Pango.FontDescription(conf.FONT))
 
+            # el tamano de letra del host tiene prioridad sobre el global, la
+            # familia de la fuente sigue siendo la global
+            host_font_size = getattr(host, 'font_size', '')
+            if host_font_size != '' and host_font_size != None:
+                font_desc = v.get_font()
+                font_desc.set_size(int(host_font_size) * 1024)
+                v.set_font(font_desc)
+
             scrollPane = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
             scrollbar = Gtk.Scrollbar().new(Gtk.Orientation.VERTICAL, v.get_vadjustment())
             scrollPane.pack_start (v, True, True, 0)
@@ -2400,6 +2408,7 @@ class Host():
             self.backspace_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
             self.delete_key = self.get_arg(args, int(Vte.EraseBinding.AUTO))
             self.term = self.get_arg(args, '')
+            self.font_size = self.get_arg(args, '')
         except:
             pass
 
@@ -2416,7 +2425,7 @@ class Host():
         return ",".join(self.tunnel)
 
     def clone(self):
-        return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term)
+        return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term, self.font_size)
 
 class HostUtils:
     @staticmethod
@@ -2453,7 +2462,8 @@ class HostUtils:
         backspace_key = int(HostUtils.get_val(cp, section, "backspace-key", int(Vte.EraseBinding.AUTO)))
         delete_key = int(HostUtils.get_val(cp, section, "delete-key", int(Vte.EraseBinding.AUTO)))
         term = HostUtils.get_val(cp, section, "term", "")
-        h = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term)
+        font_size = HostUtils.get_val(cp, section, "font-size", "")
+        h = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size)
         return h
 
     @staticmethod
@@ -2483,6 +2493,7 @@ class HostUtils:
         cp.set(section, "backspace-key", host.backspace_key)
         cp.set(section, "delete-key", host.delete_key)
         cp.set(section, "term", host.term)
+        cp.set(section, "font-size", str(host.font_size))
 
 class Whost(SimpleGladeApp):
 
@@ -2563,6 +2574,10 @@ class Whost(SimpleGladeApp):
         self.cmbBackspace = self.get_widget("cmbBackspace")
         self.cmbDelete = self.get_widget("cmbDelete")
         self.txtTerm = self.get_widget("txtTerm")
+        self.txtFontSize = self.get_widget("txtFontSize")
+        # Done programaticaly because engine does not see top-level abjustment object
+        txtFontSizeAdjustment = Gtk.Adjustment(value=10, lower=6, upper=72, step_increment=1, page_increment=4)
+        self.txtFontSize.set_adjustment(txtFontSizeAdjustment)
         self.cmbType.set_active(0)
         self.cmbBackspace.set_active(0)
         self.cmbDelete.set_active(0)
@@ -2635,6 +2650,11 @@ class Whost(SimpleGladeApp):
         self.cmbDelete.set_active(host.delete_key)
         self.update_texttags()
         self.txtTerm.set_text(host.term)
+        use_font_size = host.font_size!='' and host.font_size!=None
+        self.get_widget("chkDefaultFontSize").set_active(not use_font_size)
+        self.txtFontSize.set_sensitive(use_font_size)
+        if use_font_size:
+            self.txtFontSize.set_value(float(host.font_size))
 
     def update_texttags(self, *args):
         buf = self.txtCommands.get_buffer()
@@ -2709,8 +2729,12 @@ class Whost(SimpleGladeApp):
             return
 
         term = self.txtTerm.get_text()
+        if self.get_widget("chkDefaultFontSize").get_active():
+            font_size = ''
+        else:
+            font_size = str(int(self.txtFontSize.get_value()))
 
-        host = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term)
+        host = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size)
 
         try:
             #Guardar
@@ -2871,6 +2895,11 @@ class Whost(SimpleGladeApp):
         self.btnFColor.set_sensitive(not widget.get_active())
         self.btnBColor.set_sensitive(not widget.get_active())
     #-- Whost.on_chkDefaultColors_toggled }
+
+    #-- Whost.on_chkDefaultFontSize_toggled {
+    def on_chkDefaultFontSize_toggled(self, widget, *args):
+        self.txtFontSize.set_sensitive(not widget.get_active())
+    #-- Whost.on_chkDefaultFontSize_toggled }
 
     #-- Whost.on_btnFColor_clicked {
     def on_btnFColor_clicked(self, widget, *args):

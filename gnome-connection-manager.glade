@@ -2382,6 +2382,22 @@ Ej: ##D=1000&lt;/span&gt;</property>
               </packing>
             </child>
             <child>
+              <object class="GtkToggleToolButton" id="show_panel_btn">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="tooltip-text" translatable="yes">Mostrar u ocultar el panel de servidores</property>
+                <property name="is-important">True</property>
+                <property name="label" translatable="yes">Panel</property>
+                <property name="use-underline">True</property>
+                <property name="icon-name">sidebar-show</property>
+                <signal name="toggled" handler="on_show_panel_toggled" swapped="no"/>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="homogeneous">True</property>
+              </packing>
+            </child>
+            <child>
               <object class="GtkSeparatorToolItem">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
@@ -2547,22 +2563,6 @@ Ej: ##D=1000&lt;/span&gt;</property>
               <object class="GtkSeparatorToolItem">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
-              </object>
-              <packing>
-                <property name="expand">False</property>
-                <property name="homogeneous">True</property>
-              </packing>
-            </child>
-            <child>
-              <object class="GtkToggleToolButton" id="show_panel_btn">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-                <property name="tooltip-text" translatable="yes">Mostrar u ocultar el panel de servidores</property>
-                <property name="is-important">True</property>
-                <property name="label" translatable="yes">Panel</property>
-                <property name="use-underline">True</property>
-                <property name="icon-name">sidebar-show</property>
-                <signal name="toggled" handler="on_show_panel_toggled" swapped="no"/>
               </object>
               <packing>
                 <property name="expand">False</property>

@@ -2363,6 +2363,10 @@ class Wmain(SimpleGladeApp):
         self.get_widget("show_files").set_active(visibility)
         self.get_widget("show_files_btn").set_active(visibility)
         self.apply_left_visibility()
+        # al mostrar el panel, tomar el terminal activo (los tabs abiertos con
+        # el panel oculto nunca llegaron a darle contexto)
+        if visibility and isinstance(getattr(self, 'current', None), Vte.Terminal):
+            self.file_panel.set_context(self.current)
 
     def apply_left_visibility(self):
         # si ninguno esta visible colapsa la columna izquierda; si vuelve alguno
@@ -4106,16 +4110,24 @@ class FilePanel(Gtk.Box):
         ctx = self.get_ctx(self.term) if self.term else None
         if not ctx: return
         ctx['follow'] = self.btn_follow.get_active()
-        if ctx['follow'] and ctx['channel'] is not None and not isinstance(ctx['channel'], gcm_sftp.LocalChannel):
-            # inyectar PROMPT_COMMAND solo en esta sesion para habilitar OSC 7
-            vte_feed(self.term, "export PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}printf '\\e]7;file://$HOSTNAME%s\\a' \"$PWD\"\n")
+        if ctx['follow'] and self.term is not None:
+            # VTE no informa el cwd sin ayuda: inyectar PROMPT_COMMAND (bash)
+            # que emite OSC 7 en cada prompt. Comillas exteriores simples para
+            # que $HOSTNAME/$PWD se expandan en cada prompt, no al exportar.
+            vte_feed(self.term, "export PROMPT_COMMAND='printf \"\\e]7;file://%s%s\\a\" \"$HOSTNAME\" \"$PWD\"'\n")
         self.sync_cwd()
 
     def term_cwd(self, term):
         try:
             uri = term.get_current_directory_uri()
-            if uri and uri.startswith('file://'):
-                return uri[7:]
+            if not uri or not uri.startswith('file://'):
+                return None
+            rest = uri[7:]
+            # format: [//HOST]PATH -> tomar la ruta tras el hostname
+            if rest and not rest.startswith('/'):
+                rest = rest[rest.find('/'):] if '/' in rest else ''
+            from urllib.parse import unquote
+            return unquote(rest) or None
         except Exception:
             pass
         return None

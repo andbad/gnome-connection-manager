@@ -3986,10 +3986,17 @@ class FilePanel(Gtk.Box):
     def _connect_worker(self, term, accept_key):
         host = term.host
         ctx = self.get_ctx(term)
+        common = (host.host, host.user or get_username(), host.port,
+                  host.password, host.private_key, GCM_KNOWN_HOSTS)
         try:
-            ch = gcm_sftp.connect_ssh(host.host, host.user or get_username(), host.port,
-                                      host.password, host.private_key, GCM_KNOWN_HOSTS,
-                                      accept_key_for=host.host if accept_key else None)
+            try:
+                ch = gcm_sftp.connect_ssh(*common,
+                                          accept_key_for=host.host if accept_key else None)
+            except gcm_sftp.AuthenticationPromptRequired as ap:
+                # seconda chance: keyboard-interactive con popup per OTP/password
+                ch = gcm_sftp.connect_ssh(*common,
+                                          accept_key_for=host.host if accept_key else None,
+                                          interactive=self._ask_user_sync)
             remote_home = '/'
             try:
                 remote_home = ch.sftp.normalize('.') or '/'
@@ -4003,6 +4010,43 @@ class FilePanel(Gtk.Box):
             GLib.idle_add(self._on_host_key_prompt, term, hk)
         except Exception as e:
             GLib.idle_add(self._on_connect_error, term, str(e))
+
+    #-- OTP/keyboard-interactive: popup dalla thread di connessione {
+    def _ask_user_sync(self, prompt_text):
+        '''mostra il popup nel thread GTK e attende la risposta (blocca solo
+        la connessione di questo tab; ritorna None se annullato/timeout)'''
+        holder = {'text': None}
+        ev = threading.Event()
+
+        def show():
+            if self.wmain is None:
+                holder['text'] = None
+            else:
+                dlg = Gtk.MessageDialog(
+                    transient_for=self.wmain.get_widget("wMain"),
+                    modal=True, message_type=Gtk.MessageType.QUESTION,
+                    buttons=Gtk.ButtonsType.OK_CANCEL,
+                    text="%s\n\n%s" % (_("Codigo de autenticacion"), prompt_text))
+                entry = Gtk.Entry()
+                entry.set_visibility(False)
+                entry.set_activates_default(True)
+                dlg.format_secondary_markup("")
+                box = dlg.get_message_area() if hasattr(dlg, 'get_message_area') else dlg.vbox
+                box.pack_start(entry, True, True, 0)
+                dlg.set_default_response(Gtk.ResponseType.OK)
+                dlg.show_all()
+                resp = dlg.run()
+                txt = entry.get_text() if resp == Gtk.ResponseType.OK else None
+                if txt == '':
+                    txt = None
+                holder['text'] = txt
+                dlg.destroy()
+            ev.set()
+            return False
+        GLib.idle_add(show)
+        ev.wait(timeout=120)
+        return holder['text']
+    #-- }
 
     def _on_connected(self, term, ch, home):
         if self.wmain is None: return False

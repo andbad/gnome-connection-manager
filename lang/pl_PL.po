@@ -1435,3 +1435,7 @@ msgstr "Błąd pobierania"
 #: panel-files
 msgid "Error al subir el archivo modificado"
 msgstr "Błąd ponownego wgrywania pliku"
+
+#: auth-otp
+msgid "Codigo de autenticacion"
+msgstr "Kod uwierzytelniania"

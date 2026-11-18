@@ -5,6 +5,7 @@
 import os
 import stat
 import shutil
+import socket
 
 try:
     import paramiko
@@ -25,6 +26,14 @@ class HostKeyPrompt(Exception):
 
     def fingerprint(self):
         return ':'.join('%02x' % b for b in bytearray(self.key.get_fingerprint()))
+
+
+class AuthenticationPromptRequired(Exception):
+    '''autenticacion normal fallida: el llamador puede reintentar passando
+    interactive=handler(prompt)->str para OTP/keyboard-interactive'''
+    def __init__(self, message, prompter=None):
+        Exception.__init__(self, message)
+        self.prompter = prompter
 
 
 def _entry_sort_key(e):
@@ -162,12 +171,82 @@ class SftpChannel(ChannelBase):
             pass
 
 
-def connect_ssh(host, user, port, password, private_key, known_hosts_path, accept_key_for=None):
-    '''crea el canal SFTP. Lanza HostKeyPrompt si el host es desconocido;
-    si accept_key_for == host, la key desconocida se acepta y se guarda'''
-    if paramiko is None:
-        raise SftpError("python3-paramiko no esta instalado (sudo apt install python3-paramiko)")
+def load_one_key(path, passphrase=None):
+    '''carica una chiave privata provando tutti gli algoritmi; solleva
+    SSHException se nessuna coincide. Se l'utente indico per errore il file
+    .pub, si prova l'omologo privato (rimuovendo l'estensione)'''
+    tried_pub = False
+    while True:
+        if path.endswith('.pub'):
+            alt = path[:-4]
+            if not tried_pub and os.path.exists(alt):
+                path = alt
+                tried_pub = True
+                continue
+            raise paramiko.SSHException(
+                "%s e' una chiave pubblica" % os.path.basename(path))
+        if not os.path.exists(path):
+            raise paramiko.SSHException("file chiave non trovato: %s" % path)
+        last_err = None
+        for cls in (paramiko.RSAKey, paramiko.ECDSAKey, paramiko.Ed25519Key,
+                    paramiko.DSSKey):
+            try:
+                return cls.from_private_key_file(path, password=passphrase)
+            except paramiko.PasswordRequiredException:
+                if passphrase:
+                    raise
+                last_err = paramiko.PasswordRequiredException(
+                    "la chiave %s richiede una passphrase" % os.path.basename(path))
+            except Exception as e:
+                last_err = e
+        raise paramiko.SSHException(str(last_err))
 
+
+class AuthInteractive:
+    '''adapter di auth_interactive: precompila le richieste di password con
+    quella salvata e delega all'handler (popup) le altre (es. OTP)''
+
+    handler(prompt_text) -> str|None  (None = annulla l'autenticazione)
+
+    Non lancia mai eccezioni dentro l'handler ( gira sul thread del transport:
+    un'eccezione lì uccide la connessione): registra i flags e risponde vuoto
+    lasciando fallire l'autenticazione in modo pulito.'''
+
+    def __init__(self, saved_password, handler):
+        self.saved_password = saved_password or ''
+        self.handler = handler
+        self.password_prompt_used = False
+        self.canceled = False
+        self.prompt_needed = False
+
+    def __call__(self, title, instructions, prompt_list):
+        responses = []
+        for prompt, echo in prompt_list:
+            low = prompt.lower()
+            is_pw = ('password' in low or 'contrase' in low or 'passcode' in low)
+            if is_pw and not self.password_prompt_used and self.saved_password:
+                self.password_prompt_used = True
+                responses.append(self.saved_password)
+                continue
+            if self.canceled or self.prompt_needed:
+                responses.append('')
+                continue
+            if self.handler is None:
+                # nessun popup disponibile: il chiamante puo' ritentare con
+                # interactive=handler (secondo tentativo con GUI)
+                self.prompt_needed = True
+                responses.append('')
+                continue
+            answer = self.handler(prompt)
+            if answer is None:
+                self.canceled = True
+                responses.append('')
+                continue
+            responses.append(answer)
+        return responses
+
+
+def _make_client(known_hosts_path, accept_key_for=None, host=None):
     client = paramiko.SSHClient()
     if accept_key_for == host:
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -181,20 +260,98 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path, accep
             client.load_host_keys(user_kh)
         except Exception:
             pass
-    if os.path.exists(known_hosts_path):
+    if known_hosts_path and os.path.exists(known_hosts_path):
         client.load_host_keys(known_hosts_path)
+    return client
+
+
+def _interactive_auth(host, port, user, ai, known_hosts_path, accept_key_for=None):
+    '''keyboard-interactive su un transport nuovo (paramiko chiude il
+    transport quando un tentativo di autenticazione fallisce)'''''
+    client = _make_client(known_hosts_path, accept_key_for, host)
+    sock = socket.create_connection((host, int(port or 22)), timeout=15)
+    t = None
+    try:
+        t = paramiko.Transport(sock)
+        client._transport = t
+        t.start_client(timeout=15)
+        # verifica host key come fa SSHClient.connect
+        p = int(port or 22)
+        hk_name = host if p == 22 else "[%s]:%s" % (host, p)
+        keys = client.get_host_keys().lookup(hk_name)
+        server_key = t.get_remote_server_key()
+        if not keys:
+            # missing policy: HostKeyPrompt se non accettata; AutoAdd l'aggiunge
+            client._policy.missing_host_key(client, hk_name, server_key)
+            client.save_host_keys(known_hosts_path) if known_hosts_path else None
+        elif server_key not in list(keys.values()):
+            raise paramiko.BadHostKeyException(host, server_key, list(keys.values())[0])
+        t.auth_interactive(user or None, ai)
+        return client
+    except Exception:
+        try:
+            if t:
+                t.close()
+        except Exception:
+            pass
+        raise
+
+
+def connect_ssh(host, user, port, password, private_key, known_hosts_path,
+                accept_key_for=None, interactive=None):
+    '''crea il canale SFTP. Lanza HostKeyPrompt si el host es desconocido;
+    si accept_key_for == host, la key desconocida se acepta y se guarda.
+    interactive: callable(prompt)->str|None per OTP/keyboard-interactive.
+    La chiave privata indicada se salta con aviso si no se puede cargar
+    (sigue con agente/otras claves), igual que hace ssh en la terminal.'''
+    if paramiko is None:
+        raise SftpError("python3-paramiko no esta instalado (sudo apt install python3-paramiko)")
+
+    key_errors = []
+    pkey = None
+    if private_key and private_key.strip():
+        try:
+            pkey = load_one_key(private_key.strip(), password or None)
+        except Exception as e:
+            key_errors.append(str(e))
+            pkey = None
+
+    client = _make_client(known_hosts_path, accept_key_for, host)
 
     kw = dict(hostname=host, port=int(port or 22), username=user or None,
-              timeout=15, banner_timeout=15, auth_timeout=15)
+              timeout=15, banner_timeout=15, auth_timeout=15,
+              allow_agent=True, look_for_keys=not bool(password))
     if password:
         kw['password'] = password
-    if private_key:
-        kw['key_filename'] = private_key
-    # sin password/key explicitos: intenta agente ssh y claves por defecto
-    kw['allow_agent'] = True
-    kw['look_for_keys'] = not bool(password)
+    if pkey is not None:
+        kw['pkey'] = pkey
 
-    client.connect(**kw)
+    auth_exc = None
+    try:
+        client.connect(**kw)
+    except (paramiko.AuthenticationException, paramiko.BadAuthenticationType,
+            paramiko.PasswordRequiredException) as e:
+        auth_exc = e
+    if auth_exc is not None:
+        # reintento con keyboard-interactive (OTP o password interactiva).
+        # Si falli anche li, si propaga AuthenticationPromptRequired affinche
+        # il chiamante possa ripetere con un handler (popup OTP) funzionante.
+        # Nota: non si lanciano eccezioni dentro l'handler interactive (verrebbe
+        # ucciso il thread del transport): AuthInteractive registra i flags e
+        # risponde vuoto, lasciando fallire l'autenticazione in modo pulito.
+        ai = AuthInteractive(password, interactive)
+        try:
+            client = _interactive_auth(host, port, user, ai, known_hosts_path,
+                                       accept_key_for)
+        except HostKeyPrompt:
+            raise
+        except Exception as e2:
+            if ai.canceled:
+                raise SftpError("autenticacion cancelada por el usuario")
+            msg = str(auth_exc) if str(auth_exc) else str(e2)
+            if key_errors:
+                msg += " (chiave privata: %s)" % '; '.join(key_errors)
+            raise AuthenticationPromptRequired(msg, ai)
     if accept_key_for == host:
         # el usuario Confio en la key desconocida (AutoAddPolicy la agrego a los
         # host keys del cliente): persistirla en nuestro known_hosts

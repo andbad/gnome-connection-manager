@@ -1524,3 +1524,7 @@ msgstr "Fehler beim Herunterladen"
 #: panel-files
 msgid "Error al subir el archivo modificado"
 msgstr "Fehler beim Hochladen der geänderten Datei"
+
+#: auth-otp
+msgid "Codigo de autenticacion"
+msgstr "Authentifizierungscode"

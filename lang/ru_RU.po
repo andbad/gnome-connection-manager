@@ -1453,3 +1453,7 @@ msgstr "Ошибка загрузки"
 #: panel-files
 msgid "Error al subir el archivo modificado"
 msgstr "Ошибка загрузки изменённого файла"
+
+#: auth-otp
+msgid "Codigo de autenticacion"
+msgstr "Код аутентификации"

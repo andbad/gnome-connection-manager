@@ -1589,3 +1589,7 @@ msgstr "다운로드 오류"
 #: panel-files
 msgid "Error al subir el archivo modificado"
 msgstr "수정된 파일 재업로드 오류"
+
+#: auth-otp
+msgid "Codigo de autenticacion"
+msgstr "인증 코드"

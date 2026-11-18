@@ -1514,3 +1514,7 @@ msgstr "Errore durante il download"
 #: panel-files
 msgid "Error al subir el archivo modificado"
 msgstr "Errore nel ricaricare il file modificato"
+
+#: auth-otp
+msgid "Codigo de autenticacion"
+msgstr "Codice di autenticazione"

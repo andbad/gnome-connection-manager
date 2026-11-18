@@ -2442,6 +2442,22 @@ Ej: ##D=1000&lt;/span&gt;</property>
               </packing>
             </child>
             <child>
+              <object class="GtkToggleToolButton" id="show_files_btn">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="tooltip-text" translatable="yes">Mostrar u ocultar el administrador de archivos</property>
+                <property name="is-important">True</property>
+                <property name="label" translatable="yes">Archivos</property>
+                <property name="use-underline">True</property>
+                <property name="icon-name">folder</property>
+                <signal name="toggled" handler="on_show_files_toggled" swapped="no"/>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="homogeneous">True</property>
+              </packing>
+            </child>
+            <child>
               <object class="GtkSeparatorToolItem">
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>

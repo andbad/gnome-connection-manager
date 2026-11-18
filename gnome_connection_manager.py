@@ -457,6 +457,7 @@ class Wmain(SimpleGladeApp):
         load_encryption_key()
 
         self.initLeftPane()
+        self.initLeftPanelsLayout()
 
         self.createMenu()
         self.window = self.get_widget("wMain")
@@ -1489,6 +1490,9 @@ class Wmain(SimpleGladeApp):
     def initLeftPane(self):
         global groups
 
+        self.panel_servers = None
+        self.panel_files = None
+
         self.treeModel = Gtk.TreeStore(GObject.TYPE_STRING, GObject.TYPE_PYOBJECT, str, str)
         self.treeServers.set_model(self.treeModel)
 
@@ -1562,6 +1566,14 @@ class Wmain(SimpleGladeApp):
             conf.CYCLE_TABS = cp.getboolean("options", "cycle-tabs")
             conf.SHOW_PANEL = cp.getboolean("window", "show-panel")
             conf.SHOW_TOOLBAR = cp.getboolean("window", "show-toolbar")
+            try:
+                conf.SHOW_FILES = cp.getboolean("window", "show-files")
+            except:
+                pass
+            try:
+                conf.PANEL_ORDER = cp.getint("window", "panel-order")
+            except:
+                pass
             conf.STARTUP_LOCAL = cp.getboolean("options","startup-local")
             conf.LOG_LOCAL = cp.getboolean("options","log-local")
             conf.CONFIRM_ON_CLOSE_TAB_MIDDLE = cp.getboolean("options", "confirm-close-tab-middle")
@@ -1801,6 +1813,8 @@ class Wmain(SimpleGladeApp):
         cp.set("window", "window-height", -1 if self.wMain.is_maximized() else conf.WINDOW_HEIGHT)
         cp.set("window", "show-panel", conf.SHOW_PANEL)
         cp.set("window", "show-toolbar", conf.SHOW_TOOLBAR)
+        cp.set("window", "show-files", conf.SHOW_FILES)
+        cp.set("window", "panel-order", conf.PANEL_ORDER)
 
         i=1
         for grupo in groups:
@@ -2281,14 +2295,12 @@ class Wmain(SimpleGladeApp):
         dlg.destroy()
 
     def set_panel_visible(self, visibility):
-        if visibility:
-            GLib.timeout_add(200, lambda : self.hpMain.set_position(self.hpMain.previous_position if self.hpMain.previous_position>10 else 150))
-        else:
-            self.hpMain.previous_position = self.hpMain.get_position()
-            GLib.timeout_add(200, lambda : self.hpMain.set_position(0))
+        conf.SHOW_PANEL = visibility
+        if self.panel_servers:
+            self.panel_servers.set_visible(visibility)
+        self.apply_left_visibility()
         self.get_widget("show_panel").set_active(visibility)
         self.get_widget("show_panel_btn").set_active(visibility)
-        conf.SHOW_PANEL = visibility
 
     def set_toolbar_visible(self, visibility):
         #self.get_widget("toolbar1").set_visible(visibility)
@@ -2298,6 +2310,74 @@ class Wmain(SimpleGladeApp):
             self.get_widget("toolbar1").hide()
         self.get_widget("show_toolbar").set_active(visibility)
         conf.SHOW_TOOLBAR = visibility
+
+    #-- paneles izquierdos (servidores / archivos) {
+    def initLeftPanelsLayout(self):
+        # envuelve el treeServers existente (child 0 de hpMain) en un LeftPanel y
+        # agrega el panel de archivos debajo; permite reordenar y persistir orden
+        servers_widget = self.hpMain.get_children()[0]
+        self.hpMain.remove(servers_widget)
+
+        self.panel_servers = LeftPanel('servers', _("Servidores"), 'network-server', self)
+        self.panel_servers.add_content(servers_widget)
+
+        self.panel_files = LeftPanel('files', _("Archivos"), 'folder', self)
+        self.file_panel_placeholder = Gtk.Label(label=_("Sin conexion SFTP"))
+        self.panel_files.add_content(self.file_panel_placeholder)
+
+        self.left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.left_box.pack_start(self.panel_servers, True, True, 0)
+        self.left_box.pack_start(self.panel_files, True, True, 0)
+
+        if conf.PANEL_ORDER == 1:
+            self.left_box.reorder_child(self.panel_files, 0)
+
+        self.hpMain.add(self.left_box)
+        self.hpMain.show_all()
+
+        self.panel_servers.set_visible(conf.SHOW_PANEL)
+        self.panel_files.set_visible(conf.SHOW_FILES)
+        self.get_widget("show_files").set_active(conf.SHOW_FILES)
+        self.get_widget("show_files_btn").set_active(conf.SHOW_FILES)
+
+    def set_files_visible(self, visibility):
+        conf.SHOW_FILES = visibility
+        self.panel_files.set_visible(visibility)
+        self.get_widget("show_files").set_active(visibility)
+        self.get_widget("show_files_btn").set_active(visibility)
+        self.apply_left_visibility()
+
+    def apply_left_visibility(self):
+        # si ninguno esta visible colapsa la columna izquierda; si vuelve alguno
+        # y estaba colapsada, restaurar la posicion previa
+        vis = self.panel_servers.get_visible() or self.panel_files.get_visible()
+        if not vis:
+            if self.hpMain.get_position() > 10:
+                self.hpMain.previous_position = self.hpMain.get_position()
+            self.hpMain.set_position(0)
+        else:
+            if self.hpMain.get_position() < 10:
+                GLib.timeout_add(200, lambda : self.hpMain.set_position(self.hpMain.previous_position if self.hpMain.previous_position>10 else 150))
+
+    def hide_panel(self, name):
+        if name == 'servers':
+            self.set_panel_visible(False)
+        else:
+            self.set_files_visible(False)
+
+    def swap_left_panels(self):
+        order = [self.left_box.get_children()[0] if hasattr(self.left_box, 'get_children') else None]
+        children = [c for c in self.left_box.get_children() if c in (self.panel_servers, self.panel_files)]
+        if len(children) == 2:
+            first = self.panel_servers if children[0] is self.panel_servers else self.panel_files
+            if first is self.panel_files:
+                self.left_box.reorder_child(self.panel_servers, 0)
+                conf.PANEL_ORDER = 0
+            else:
+                self.left_box.reorder_child(self.panel_files, 0)
+                conf.PANEL_ORDER = 1
+        self.writeConfig()
+    #-- paneles izquierdos }
 
     #-- Wmain custom methods }
 
@@ -2411,6 +2491,12 @@ class Wmain(SimpleGladeApp):
     def on_show_panel_toggled(self, widget, *args):
         self.set_panel_visible(widget.get_active())
     #-- Wmain.on_show_panel_activate }
+
+    #-- Wmain.on_show_files_toggled {
+    def on_show_files_toggled(self, widget, *args):
+        self.set_files_visible(widget.get_active())
+        self.writeConfig()
+    #-- Wmain.on_show_files_toggled }
 
     #-- Wmain.on_acerca_de1_activate {
     def on_acerca_de1_activate(self, widget, *args):
@@ -3653,6 +3739,55 @@ class Wcluster(SimpleGladeApp):
                         widget.history_index = -1
                 widget.get_buffer().set_text(widget.history[widget.history_index] if widget.history_index>=0 else '')
     #-- Wcluster.on_txtCommands_key_press_event }
+
+
+class LeftPanel(Gtk.Box):
+    '''Pannello della colonna sinistra con cabecera draggable (permite cambiar el
+    orden de los paneles arrastrando su titulo) y boton para ocultarlo.'''
+    def __init__(self, name, title, icon, wmain_):
+        Gtk.Box.__init__(self, orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.panel_name = name
+        self.wmain = wmain_
+
+        header = Gtk.EventBox()
+        hb = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        hb.set_border_width(2)
+        img = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU)
+        label = Gtk.Label(label=title, xalign=0)
+        label.get_style_context().add_class("gcm-panel-header")
+        hb.pack_start(img, False, False, 0)
+        hb.pack_start(label, True, True, 0)
+        close_btn = Gtk.Button()
+        close_btn.set_relief(Gtk.ReliefStyle.NONE)
+        close_btn.set_image(Gtk.Image.new_from_icon_name("window-close", Gtk.IconSize.MENU))
+        close_btn.connect('clicked', lambda b: self.wmain.hide_panel(name))
+        hb.pack_end(close_btn, False, False, 0)
+        header.add(hb)
+        header.set_tooltip_text(_("Arrastre el titulo para cambiar el orden de los paneles"))
+        self.header = header
+        self.pack_start(header, False, False, 0)
+
+        target = Gtk.TargetEntry.new('x-gcm-panel', Gtk.TargetFlags.SAME_APP, 0)
+        header.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [target], Gdk.DragAction.MOVE)
+        header.drag_dest_set(Gtk.DestDefaults.MOTION | Gtk.DestDefaults.HIGHLIGHT | Gtk.DestDefaults.DROP,
+                             [target], Gdk.DragAction.MOVE)
+        header.connect('drag-data-get', self._drag_data_get)
+        header.connect('drag-data-received', self._drag_data_received)
+
+    def add_content(self, widget):
+        self.pack_start(widget, True, True, 0)
+
+    def _drag_data_get(self, widget, ctx, selection, info, time):
+        selection.set(selection.get_target(), 0, self.panel_name)
+
+    def _drag_data_received(self, widget, ctx, x, y, selection, info, time):
+        try:
+            src = selection.data.decode('utf-8') if isinstance(selection.data, bytes) else selection.data
+        except Exception:
+            src = None
+        if src and src != self.panel_name:
+            self.wmain.swap_left_panels()
+            ctx.set_drag_action(Gdk.DragAction.MOVE)
 
 
 class NotebookTabLabel(Gtk.HBox):

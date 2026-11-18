@@ -1501,3 +1501,23 @@ msgstr "저장된 세션 삭제"
 #: key-protection
 msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
 msgstr "현재 가얼기 키가 밀번번호 저장에 사용된 키와 일치하지 않습니다.\n밀번번호는 파일에 그대로 유지되며, 키가 일치할 때까지 변경사항은 저장되지 않습니다.\n원래 키를 '%s'에서 복구하십시오 (예: 백업)."
+
+#: panel-files
+msgid "Archivos"
+msgstr "파일"
+
+#: panel-files
+msgid "Sin conexion SFTP"
+msgstr "SFTP 연결 안슪용"
+
+#: panel-files
+msgid "Arrastre el titulo para cambiar el orden de los paneles"
+msgstr "제목을 드래그해 패널 순서를 변경하십시오"
+
+#: panel-files
+msgid "Mostrar Administrador de Archivos"
+msgstr "파일 관리자 표시"
+
+#: panel-files
+msgid "Mostrar u ocultar el administrador de archivos"
+msgstr "파일 관리자 표시/숨기"

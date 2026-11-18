@@ -1365,3 +1365,23 @@ msgstr "Удалить сохранённую сессию"
 #: key-protection
 msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
 msgstr "Текущий ключ шифрования не совпадает с ключом сохранённых паролей.\nПароли остаются интактными в файле; изменения не будут сохранены, пока ключ не совпадёт.\nВосстановите оригинальный ключ из '%s' (например из резервной копии)."
+
+#: panel-files
+msgid "Archivos"
+msgstr "Файлы"
+
+#: panel-files
+msgid "Sin conexion SFTP"
+msgstr "Нет SFTP-соединения"
+
+#: panel-files
+msgid "Arrastre el titulo para cambiar el orden de los paneles"
+msgstr "Перетащите заголовок, чтобы изменить порядок панелей"
+
+#: panel-files
+msgid "Mostrar Administrador de Archivos"
+msgstr "Показать файловый менеджер"
+
+#: panel-files
+msgid "Mostrar u ocultar el administrador de archivos"
+msgstr "Показать или скрыть файловый менеджер"

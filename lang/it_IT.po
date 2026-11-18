@@ -1426,3 +1426,23 @@ msgstr "Elimina la sessione salvata"
 #: key-protection
 msgid "Se detecto que la clave de cifrado actual no coincide con la usada para guardar las contraseñas.\nLas contraseñas se mantienen intactas en el archivo y no se guardaran cambios hasta que la clave coincida.\nRecupere la clave original de '%s' (por ejemplo desde un respaldo)."
 msgstr "La chiave di cifratura attuale non corrisponde a quella usata per salvare le password.\nLe password restano intatte nel file e non sara salvato alcun cambiamento finche la chiave non corrisponde.\nRecuperare la chiave originale da '%s' (ad esempio da un backup)."
+
+#: panel-files
+msgid "Archivos"
+msgstr "File"
+
+#: panel-files
+msgid "Sin conexion SFTP"
+msgstr "Nessuna connessione SFTP"
+
+#: panel-files
+msgid "Arrastre el titulo para cambiar el orden de los paneles"
+msgstr "Trascina il titolo per cambiare l'ordine dei pannelli"
+
+#: panel-files
+msgid "Mostrar Administrador de Archivos"
+msgstr "Mostra amministratore file"
+
+#: panel-files
+msgid "Mostrar u ocultar el administrador de archivos"
+msgstr "Mostra o nasconde l'amministratore file"

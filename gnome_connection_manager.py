@@ -81,6 +81,8 @@ from SimpleGladeApp import bindtextdomain
 import configparser
 import pyAES
 import urlregex
+import gcm_sftp
+import threading
 
 app_name = "Gnome Connection Manager"
 app_version = "1.2.1"
@@ -114,6 +116,7 @@ assert os.path.isdir(USERHOME_DIR), \
 CONFIG_DIR = USERHOME_DIR + "/.gcm"
 CONFIG_FILE = CONFIG_DIR + "/gcm.conf"
 KEY_FILE = CONFIG_DIR + "/.gcm.key"
+GCM_KNOWN_HOSTS = CONFIG_DIR + "/known_hosts"
 
 if not os.path.exists(CONFIG_DIR):
     os.makedirs(CONFIG_DIR)
@@ -1369,6 +1372,7 @@ class Wmain(SimpleGladeApp):
             v.connect('selection-changed', self.on_terminal_selection)
             v.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
             v.connect('scroll-event', self.on_terminal_scroll)
+            v.connect('notify::current-directory-uri', lambda t, p: hasattr(self, 'file_panel') and self.file_panel.on_terminal_cwd_changed(t))
 
             if conf.TRANSPARENCY > 0 and self.wMain.transparency:
                 #v.set_opacity(1 - (conf.TRANSPARENCY / 100)) #posibly a bug in gtk3, set_opacity only works if parent is transparent too (worked just fine in gtk2),
@@ -1478,6 +1482,11 @@ class Wmain(SimpleGladeApp):
 
             #guardar datos de consola para clonar consola
             v.host = host
+
+            # el panel de archivos puede haber pedido el contexto antes de que
+            # existiera v.host (switch-page se dispara al agregar la pagina)
+            if hasattr(self, 'file_panel') and conf.SHOW_FILES:
+                GLib.idle_add(lambda: self.file_panel.set_context(v) or False)
         except Exception as e:
             print("ERROR", e)
             traceback.print_exc()
@@ -2143,6 +2152,14 @@ class Wmain(SimpleGladeApp):
     def on_tab_focus(self, widget, tab=None, *args):
         if isinstance(widget, Vte.Terminal):
             self.current = widget
+            if hasattr(self, 'file_panel'):
+                if not hasattr(widget, '_fpc') and conf.SHOW_FILES:
+                    GLib.idle_add(lambda: self.file_panel.set_context(widget) or False)
+        elif isinstance(tab, Gtk.Widget) and hasattr(self, 'file_panel') and conf.SHOW_FILES:
+            # cambio de pagina en un notebook (switch-page pasa la pagina misma)
+            t = self.find_terminal_in(tab)
+            if t is not None:
+                self.file_panel.set_context(t)
         if conf.UPDATE_TITLE and widget != None:
             if isinstance(widget, Vte.Terminal):
                 tab_text = widget.get_parent().get_parent().get_tab_label(widget.get_parent()).get_text()
@@ -2322,8 +2339,8 @@ class Wmain(SimpleGladeApp):
         self.panel_servers.add_content(servers_widget)
 
         self.panel_files = LeftPanel('files', _("Archivos"), 'folder', self)
-        self.file_panel_placeholder = Gtk.Label(label=_("Sin conexion SFTP"))
-        self.panel_files.add_content(self.file_panel_placeholder)
+        self.file_panel = FilePanel(self)
+        self.panel_files.add_content(self.file_panel)
 
         self.left_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.left_box.pack_start(self.panel_servers, True, True, 0)
@@ -3788,6 +3805,352 @@ class LeftPanel(Gtk.Box):
         if src and src != self.panel_name:
             self.wmain.swap_left_panels()
             ctx.set_drag_action(Gdk.DragAction.MOVE)
+
+
+class FilePanel(Gtk.Box):
+    '''Albero de archivos del terminal activo (SFTP o local).'''
+
+    COL_ICON = 0
+    COL_NAME = 1
+    COL_PATH = 2
+    COL_DIR = 3
+    COL_SIZE = 4
+
+    def __init__(self, wmain_):
+        Gtk.Box.__init__(self, orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.wmain = wmain_
+        self.term = None          # terminal en contexto
+        self.req_id = 0           # invalidador de respuestas asincronas
+
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        toolbar.set_border_width(2)
+        def tb(icon, tip, handler):
+            b = Gtk.Button()
+            b.set_relief(Gtk.ReliefStyle.NONE)
+            b.set_image(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU))
+            b.set_tooltip_text(tip)
+            b.connect('clicked', handler)
+            toolbar.pack_start(b, False, False, 0)
+            return b
+        self.btn_up = tb('go-up', _("Subir un nivel"), lambda b: self.go_up())
+        self.btn_home = tb('user-home', _("Inicio del servidor"), lambda b: self.go_home())
+        self.btn_refresh = tb('view-refresh', _("Refrescar"), lambda b: self.reload())
+        self.btn_sync = tb('emblem-synchronizing', _("Sincronizar con el directorio del terminal"), lambda b: self.sync_cwd())
+        self.btn_follow = Gtk.ToggleButton()
+        self.btn_follow.set_relief(Gtk.ReliefStyle.NONE)
+        self.btn_follow.set_image(Gtk.Image.new_from_icon_name('system-run', Gtk.IconSize.MENU))
+        self.btn_follow.set_tooltip_text(_("Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"))
+        self.btn_follow.connect('toggled', lambda b: self.toggle_follow())
+        toolbar.pack_start(self.btn_follow, False, False, 0)
+        self.pack_start(toolbar, False, False, 0)
+
+        self.path_label = Gtk.Label(label="", xalign=0)
+        self.path_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.path_label.set_margin_top(2)
+        self.path_label.set_margin_bottom(2)
+        self.path_label.set_margin_start(4)
+        self.path_label.set_margin_end(4)
+        self.pack_start(self.path_label, False, False, 0)
+
+        self.store = Gtk.TreeStore(str, str, str, bool, str)
+        self.tree = Gtk.TreeView(model=self.store)
+        self.tree.set_headers_visible(False)
+        self.tree.enable_model_drag_source(Gdk.ModifierType.BUTTON1_MASK,
+                                           [Gtk.TargetEntry.new('text/uri-list', 0, 0)],
+                                           Gdk.DragAction.COPY)
+        self.tree.connect('drag-data-get', self._row_drag_data_get)
+        col = Gtk.TreeViewColumn()
+        col.pack_start(Gtk.CellRendererPixbuf(), False)
+        col.add_attribute(col.get_cells()[0], 'icon-name', FilePanel.COL_ICON)
+        col.pack_start(Gtk.CellRendererText(), True)
+        col.add_attribute(col.get_cells()[1], 'text', FilePanel.COL_NAME)
+        col.pack_start(Gtk.CellRendererText(), False)
+        col.add_attribute(col.get_cells()[2], 'text', FilePanel.COL_SIZE)
+        self.tree.append_column(col)
+        self.tree.connect('row-expanded', self.on_row_expanded)
+
+        sc = Gtk.ScrolledWindow()
+        sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        sc.add(self.tree)
+        self.sc = sc
+        self.pack_start(sc, True, True, 0)
+        self.set_placeholder()
+        self.show_all()
+
+    #-- contexto por terminal {
+    def get_ctx(self, term):
+        if not hasattr(term, '_fpc'):
+            term._fpc = {'channel': None, 'path': None, 'follow': False, 'connecting': False,
+                         'error': None}
+        return term._fpc
+
+    def set_context(self, term):
+        self.term = term
+        ctx = self.get_ctx(term)
+        self.btn_follow.set_active(ctx['follow'])
+        # si la consola quedo con un canal local pero el host remoto ya fue
+        # asignado (switch-page disparesto antes de v.host), reconectar
+        host = getattr(term, 'host', None)
+        remote = bool(host and host.host not in ('', None))
+        if ctx['channel'] is not None and remote and isinstance(ctx['channel'], gcm_sftp.LocalChannel):
+            ctx['channel'].close()
+            ctx['channel'] = None
+            ctx['path'] = None
+            ctx['error'] = None
+        if ctx['channel'] is None and ctx['error'] is None and not ctx['connecting']:
+            self.connect_channel(term)
+        elif ctx['channel'] is not None:
+            self.show_listing(ctx['path'])
+        else:
+            self.set_placeholder()
+
+    def set_placeholder(self, text=None):
+        ctx = self.get_ctx(self.term) if self.term else None
+        msg = text or (ctx and ctx.get('error')) or _("Sin conexion SFTP")
+        self.path_label.set_text("")
+        self.store.clear()
+        self.store.append(None, ['dialog-information', msg, '', False, ''])
+
+    #-- canal {
+    def connect_channel(self, term):
+        ctx = self.get_ctx(term)
+        ctx['connecting'] = True
+        host = getattr(term, 'host', None)
+        if host is None or host.host in ('', None):
+            # consola local: filesystem local
+            ctx['channel'] = gcm_sftp.LocalChannel()
+            ctx['connecting'] = False
+            self.show_listing(os.getenv('HOME'))
+            return
+        if getattr(host, 'type', 'ssh') != 'ssh':
+            ctx['connecting'] = False
+            ctx['error'] = _("SFTP no disponible para sesiones %s") % (host.type,)
+            self.set_placeholder()
+            return
+        if gcm_sftp.paramiko is None:
+            ctx['error'] = _("Instale python3-paramiko para SFTP")
+            ctx['connecting'] = False
+            self.set_placeholder()
+            return
+        t = threading.Thread(target=self._connect_worker, args=(term, False))
+        t.daemon = True
+        t.start()
+
+    def _connect_worker(self, term, accept_key):
+        host = term.host
+        ctx = self.get_ctx(term)
+        try:
+            ch = gcm_sftp.connect_ssh(host.host, host.user or get_username(), host.port,
+                                      host.password, host.private_key, GCM_KNOWN_HOSTS,
+                                      accept_key_for=host.host if accept_key else None)
+            remote_home = '/'
+            try:
+                remote_home = ch.sftp.normalize('.') or '/'
+            except Exception:
+                try:
+                    remote_home = ch.sftp.start_client and '/'
+                except Exception:
+                    pass
+            GLib.idle_add(self._on_connected, term, ch, remote_home)
+        except gcm_sftp.HostKeyPrompt as hk:
+            GLib.idle_add(self._on_host_key_prompt, term, hk)
+        except Exception as e:
+            GLib.idle_add(self._on_connect_error, term, str(e))
+
+    def _on_connected(self, term, ch, home):
+        if self.wmain is None: return False
+        ctx = self.get_ctx(term)
+        ctx['channel'] = ch
+        ctx['connecting'] = False
+        ctx['error'] = None
+        if ctx['path'] is None:
+            ctx['path'] = home
+        if self.term is term:
+            self.show_listing(ctx['path'])
+        return False
+
+    def _on_connect_error(self, term, err):
+        if self.wmain is None: return False
+        ctx = self.get_ctx(term)
+        ctx['connecting'] = False
+        ctx['error'] = _("Error SFTP") + ": %s" % (err.splitlines()[0] if err else err)
+        if self.term is term:
+            self.set_placeholder()
+        return False
+
+    def _on_host_key_prompt(self, term, hk):
+        if self.wmain is None: return False
+        ctx = self.get_ctx(term)
+        ctx['connecting'] = False
+        res = msgconfirm("%s\n%s\n\n%s: %s\n\n%s?" % (_("Host desconocido"), hk.hostname,
+                        _("Huella digital"), hk.fingerprint(),
+                        _("Confia y conecta")))
+        if res == Gtk.ResponseType.OK:
+            t = threading.Thread(target=self._connect_worker, args=(term, True))
+            t.daemon = True
+            t.start()
+        else:
+            ctx['error'] = _("Conexion cancelada (host key no confiable)")
+            if self.term is term:
+                self.set_placeholder()
+        return False
+    #-- }
+
+    #-- listado {
+    def show_listing(self, path):
+        ctx = self.get_ctx(self.term)
+        ctx['path'] = path or '/'
+        self.path_label.set_text(ctx['path'])
+        self.store.clear()
+        if ctx['channel'] is None:
+            self.set_placeholder()
+            return
+        self._populate(None, ctx['path'])
+
+    def _populate(self, parent_iter, path):
+        ctx = self.get_ctx(self.term)
+        self.req_id += 1
+        rid = self.req_id
+        # fila dummy para poder expandir
+        if parent_iter is None:
+            # relleno directo de la raiz mostrada en la misma ventana
+            def done(entries, err):
+                if self.wmain is None or self.term is None: return False
+                if rid != self.req_id: return False
+                self.store.clear()
+                if err:
+                    self.store.append(None, ['dialog-warning', err, path, False, ''])
+                else:
+                    for e in entries or []:
+                        if e['name'].startswith('.') and not ctx.get('show_hidden'):
+                            continue
+                        it = self.store.append(None, ['folder' if e['dir'] else 'text-x-generic',
+                                                       e['name'] + ('/' if e['dir'] else ''),
+                                                       e['path'], e['dir'],
+                                                       '' if e['dir'] else _human_size(e['size'])])
+                        if e['dir']:
+                            self.store.append(it, ['', '', '', False, ''])
+                return False
+            self._async_list(path, done)
+        else:
+            def done(entries, err):
+                if self.wmain is None or self.term is None or not parent_iter: return False
+                if rid != self.req_id: return False
+                try:
+                    self.store.remove(self.store.iter_children(parent_iter))
+                except Exception:
+                    pass
+                for e in entries or []:
+                    if e['name'].startswith('.') and not ctx.get('show_hidden'):
+                        continue
+                    it = self.store.append(parent_iter, ['folder' if e['dir'] else 'text-x-generic',
+                                    e['name'] + ('/' if e['dir'] else ''), e['path'], e['dir'],
+                                    '' if e['dir'] else _human_size(e['size'])])
+                    if e['dir']:
+                        self.store.append(it, ['', '', '', False, ''])
+                return False
+            self._async_list(path, done)
+
+    def _async_list(self, path, done):
+        ctx = self.get_ctx(self.term)
+        ch = ctx['channel']
+        def worker():
+            try:
+                entries = ch.listdir(path)
+                GLib.idle_add(done, entries, None)
+            except Exception as e:
+                GLib.idle_add(done, None, str(e)[:80])
+        t = threading.Thread(target=worker)
+        t.daemon = True
+        t.start()
+
+    def on_row_expanded(self, tree, row, path_treepath):
+        node = self.store.get_iter(path_treepath)
+        p = self.store.get_value(node, FilePanel.COL_PATH)
+        self._populate(node, p)
+    #-- }
+
+    #-- navegacion {
+    def go_up(self):
+        ctx = self.get_ctx(self.term) if self.term else None
+        if not ctx or not ctx['path']: return
+        p = ctx['path'].rstrip('/')
+        parent = p[:p.rfind('/')] or '/'
+        self.show_listing(parent)
+
+    def go_home(self):
+        ctx = self.get_ctx(self.term) if self.term else None
+        if ctx and ctx['channel'] is not None:
+            ch = ctx['channel']
+            if isinstance(ch, gcm_sftp.LocalChannel):
+                self.show_listing(os.getenv('HOME'))
+            else:
+                try:
+                    self.show_listing(ch.sftp.normalize('.') or '/')
+                except Exception:
+                    pass
+
+    def reload(self):
+        ctx = self.get_ctx(self.term) if self.term else None
+        if ctx and ctx['path']:
+            self.show_listing(ctx['path'])
+
+    def sync_cwd(self):
+        ctx = self.get_ctx(self.term) if self.term else None
+        if not ctx or ctx['channel'] is None: return
+        d = self.term_cwd(self.term)
+        if d:
+            self.show_listing(d)
+
+    def toggle_follow(self):
+        ctx = self.get_ctx(self.term) if self.term else None
+        if not ctx: return
+        ctx['follow'] = self.btn_follow.get_active()
+        if ctx['follow'] and ctx['channel'] is not None and not isinstance(ctx['channel'], gcm_sftp.LocalChannel):
+            # inyectar PROMPT_COMMAND solo en esta sesion para habilitar OSC 7
+            vte_feed(self.term, "export PROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}printf '\\e]7;file://$HOSTNAME%s\\a' \"$PWD\"\n")
+        self.sync_cwd()
+
+    def term_cwd(self, term):
+        try:
+            uri = term.get_current_directory_uri()
+            if uri and uri.startswith('file://'):
+                return uri[7:]
+        except Exception:
+            pass
+        return None
+
+    def on_terminal_cwd_changed(self, term):
+        ctx = self.get_ctx(term)
+        if ctx['follow'] and self.term is term and self.get_visible():
+            d = self.term_cwd(term)
+            if d and d != ctx['path']:
+                self.show_listing(d)
+
+    def _row_drag_data_get(self, tree, ctx_dnd, selection, info, time):
+        model, it = tree.get_selection().get_selected()
+        if it:
+            p = model.get_value(it, FilePanel.COL_PATH)
+            host = getattr(self.term, 'host', None) if self.term else None
+            if host and host.host:
+                uri = 'sftp://%s@%s%s' % (host.user or get_username(), host.host, p)
+            else:
+                uri = 'file://' + p
+            selection.set_uris([uri])
+            selection.set('STRING', 8, p.encode('utf-8'))
+    #-- }
+
+
+def _human_size(n):
+    try:
+        n = float(n)
+    except Exception:
+        return ''
+    for u in ('B','K','M','G','T'):
+        if n < 1024:
+            return ('%d%s' if n < 10 else '%.1f%s') % (n, u)
+        n /= 1024
+    return '%.1fP' % n
 
 
 class NotebookTabLabel(Gtk.HBox):

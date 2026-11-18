@@ -1521,3 +1521,71 @@ msgstr "파일 관리자 표시"
 #: panel-files
 msgid "Mostrar u ocultar el administrador de archivos"
 msgstr "파일 관리자 표시/숨기"
+
+#: panel-files
+msgid "Subir un nivel"
+msgstr "한 단계 위로"
+
+#: panel-files
+msgid "Inicio del servidor"
+msgstr "서버 홈"
+
+#: panel-files
+msgid "Refrescar"
+msgstr "새로 고침"
+
+#: panel-files
+msgid "Sincronizar con el directorio del terminal"
+msgstr "터미널 디렉터리와 동기화"
+
+#: panel-files
+msgid "Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"
+msgstr "터미널 디렉터리 추적 켜기 (PROMPT_COMMAND 삽입)"
+
+#: panel-files
+msgid "Instale python3-paramiko para SFTP"
+msgstr "SFTP용 python3-paramiko 설치"
+
+#: panel-files
+msgid "SFTP no disponible para sesiones %s"
+msgstr "%s 세션에서는 SFTP 사용 불가"
+
+#: panel-files
+msgid "Error SFTP"
+msgstr "SFTP 오류"
+
+#: panel-files
+msgid "Host desconocido"
+msgstr "알 수 없는 호스트"
+
+#: panel-files
+msgid "Huella digital"
+msgstr "지문"
+
+#: panel-files
+msgid "Confia y conecta"
+msgstr "신뢰하고 연결"
+
+#: panel-files
+msgid "Conexion cancelada (host key no confiable)"
+msgstr "연결 취소됨 (신뢰할 수 없는 호스트 키)"
+
+#: panel-files
+msgid "Abra primero una consola para subir archivos"
+msgstr "파일을 업로드하려면 먼저 콘솔을 여세요"
+
+#: panel-files
+msgid "Error al subir"
+msgstr "업로드 오류"
+
+#: panel-files
+msgid "Error al abrir"
+msgstr "열기 오류"
+
+#: panel-files
+msgid "Error al descargar"
+msgstr "다운로드 오류"
+
+#: panel-files
+msgid "Error al subir el archivo modificado"
+msgstr "수정된 파일 재업로드 오류"

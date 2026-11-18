@@ -83,6 +83,8 @@ import pyAES
 import urlregex
 import gcm_sftp
 import threading
+import subprocess
+import shutil
 
 app_name = "Gnome Connection Manager"
 app_version = "1.2.1"
@@ -1866,6 +1868,21 @@ class Wmain(SimpleGladeApp):
                     return t
         return None
 
+    def terminals_list(self):
+        terms = []
+        def walk(w):
+            if isinstance(w, Vte.Terminal):
+                terms.append(w)
+                return
+            if hasattr(w, "get_children"):
+                for c in w.get_children():
+                    walk(c)
+        try:
+            walk(self.hpMain.get_children()[1])
+        except Exception:
+            pass
+        return terms
+
     def capture_pane(self, widget):
         # serializa recursivamente el arbol de notebooks/paned de la consola
         if isinstance(widget, Gtk.Notebook):
@@ -1892,6 +1909,13 @@ class Wmain(SimpleGladeApp):
                 size = term.get_font().get_size() // 1024
                 if size != default_size:
                     tab['zoom'] = size
+                # estado del panel de archivos de esta consola
+                if hasattr(self, 'file_panel'):
+                    fctx = getattr(term, '_fpc', None)
+                    if fctx and fctx.get('path'):
+                        tab['fpath'] = fctx['path']
+                        if fctx.get('follow'):
+                            tab['ffollow'] = 1
                 tabs.append(tab)
             cur = widget.get_current_page()
             nb = {'type': 'notebook', 'tabs': tabs, 'current': cur if 0 <= cur < len(tabs) else 0}
@@ -1938,7 +1962,7 @@ class Wmain(SimpleGladeApp):
         nb.connect('scroll-event', self.on_tab_scroll)
         return nb
 
-    def open_session_tab(self, notebook, ref, zoom=None):
+    def open_session_tab(self, notebook, ref, zoom=None, tab_spec=None):
         host = None
         if ref == 'local':
             host = 'local'
@@ -1960,6 +1984,14 @@ class Wmain(SimpleGladeApp):
             fd = term.get_font()
             fd.set_size(int(zoom) * 1024)
             term.set_font(fd)
+        # estado del panel de archivos guardado en la sesion
+        if term is not None and hasattr(self, 'file_panel'):
+            fctx = self.file_panel.get_ctx(term)
+            fpath = tab_spec.get('fpath') if tab_spec else None
+            if fpath:
+                fctx['pending_fpath'] = fpath
+            if tab_spec and tab_spec.get('ffollow'):
+                self.file_panel.apply_follow(term)
         return term
 
     def restore_session_tree(self, spec):
@@ -1975,7 +2007,7 @@ class Wmain(SimpleGladeApp):
                 nb = self.create_session_notebook()
             self._session_nbs.append(nb)
             for tab in spec['tabs']:
-                self.open_session_tab(nb, tab['ref'], tab.get('zoom'))
+                self.open_session_tab(nb, tab['ref'], tab.get('zoom'), tab)
             if spec.get('current') is not None and spec['current'] >= 0:
                 nb.set_current_page(min(spec['current'], len(nb.get_children())-1) if nb.get_children() else -1)
             return nb
@@ -3825,6 +3857,7 @@ class FilePanel(Gtk.Box):
         self.wmain = wmain_
         self.term = None          # terminal en contexto
         self.req_id = 0           # invalidador de respuestas asincronas
+        self._edit_timer = None   # vigilante de archivos abiertos en edicion
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
         toolbar.set_border_width(2)
@@ -3872,6 +3905,13 @@ class FilePanel(Gtk.Box):
         col.add_attribute(col.get_cells()[2], 'text', FilePanel.COL_SIZE)
         self.tree.append_column(col)
         self.tree.connect('row-expanded', self.on_row_expanded)
+        self.tree.connect('row-activated', self.on_row_activated)
+        # destino de arrastre: archivos del escritorio del usuario -> subir
+        self.tree.enable_model_drag_dest([Gtk.TargetEntry.new('text/uri-list', 0, 10)],
+                                         Gdk.DragAction.COPY)
+        self.tree.connect('drag-data-received', self._tree_drag_data_received)
+        # origen adicional: arrastrar la fila a la terminal copia su ruta
+        self.tree.drag_source_add_text_targets()
 
         sc = Gtk.ScrolledWindow()
         sc.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -3924,7 +3964,10 @@ class FilePanel(Gtk.Box):
             # consola local: filesystem local
             ctx['channel'] = gcm_sftp.LocalChannel()
             ctx['connecting'] = False
-            self.show_listing(os.getenv('HOME'))
+            pending = ctx.pop('pending_fpath', None)
+            if pending:
+                ctx['path'] = None
+            self.show_listing(pending or os.getenv('HOME'))
             return
         if getattr(host, 'type', 'ssh') != 'ssh':
             ctx['connecting'] = False
@@ -3967,8 +4010,16 @@ class FilePanel(Gtk.Box):
         ctx['channel'] = ch
         ctx['connecting'] = False
         ctx['error'] = None
-        if ctx['path'] is None:
+        pending = ctx.pop('pending_fpath', None)
+        if pending and not ctx.get('follow'):
+            # la sessione restaurata indicaba otra carpeta: tiene prioridad.
+            # Con follow activo el directorio lo manda la terminal (OSC 7),
+            # no forzarlo: la primera inyeccion lo sobreescribiria igual
+            ctx['path'] = pending
+        elif ctx['path'] is None:
             ctx['path'] = home
+        if ctx.get('follow'):
+            self.apply_follow(term)
         if self.term is term:
             self.show_listing(ctx['path'])
         return False
@@ -4110,12 +4161,26 @@ class FilePanel(Gtk.Box):
         ctx = self.get_ctx(self.term) if self.term else None
         if not ctx: return
         ctx['follow'] = self.btn_follow.get_active()
-        if ctx['follow'] and self.term is not None:
-            # VTE no informa el cwd sin ayuda: inyectar PROMPT_COMMAND (bash)
-            # que emite OSC 7 en cada prompt. Comillas exteriores simples para
-            # que $HOSTNAME/$PWD se expandan en cada prompt, no al exportar.
-            vte_feed(self.term, "export PROMPT_COMMAND='printf \"\\e]7;file://%s%s\\a\" \"$HOSTNAME\" \"$PWD\"'\n")
+        if ctx['follow']:
+            self.inject_osc7(self.term)
         self.sync_cwd()
+
+    def apply_follow(self, term):
+        '''marcar follow en esta consola (usado al restaurar la sesion). La
+        inyeccion PROMPT_COMMAND se repetira cuando se conecte el canal.'''
+        ctx = self.get_ctx(term)
+        ctx['follow'] = True
+        if ctx['channel'] is not None:
+            self.inject_osc7(term)
+
+    def inject_osc7(self, term):
+        # VTE no informa el cwd sin ayuda: inyectar PROMPT_COMMAND (bash)
+        # que emite OSC 7 en cada prompt. Comillas exteriores simples para
+        # que $HOSTNAME/$PWD se expandan en cada prompt, no al exportar.
+        try:
+            vte_feed(term, "export PROMPT_COMMAND='printf \"\\e]7;file://%s%s\\a\" \"$HOSTNAME\" \"$PWD\"'\n")
+        except Exception:
+            pass
 
     def term_cwd(self, term):
         try:
@@ -4148,8 +4213,172 @@ class FilePanel(Gtk.Box):
                 uri = 'sftp://%s@%s%s' % (host.user or get_username(), host.host, p)
             else:
                 uri = 'file://' + p
-            selection.set_uris([uri])
-            selection.set('STRING', 8, p.encode('utf-8'))
+            try:
+                if selection.targets_include_uri():
+                    selection.set_uris([uri])
+                if selection.targets_include_text():
+                    # arrastrar a la terminal: escribe la ruta en el prompt
+                    selection.set_text(p, -1)
+            except Exception:
+                selection.set('STRING', 8, p.encode('utf-8'))
+
+    #-- arrastre: soltar archivos del escritorio sobre el panel = subir {
+    def _tree_drag_data_received(self, tree, ctx, x, y, selection, info, time):
+        try:
+            if ctx.get_source_widget() is tree:
+                return  # arrastre interno (a la terminal/otra app): no es subida
+        except Exception:
+            pass
+        uris = selection.get_uris() if selection else []
+        # destino: si solto sobre una fila de carpeta, dentro de ella; si no,
+        # en la carpeta actualmente mostrada
+        dest = None
+        path_at = tree.get_dest_row_at_pos(x, y)
+        if path_at:
+            it = self.store.get_iter(path_at[0])
+            if self.store.get_value(it, FilePanel.COL_DIR):
+                dest = self.store.get_value(it, FilePanel.COL_PATH)
+        entries = []
+        for u in uris or []:
+            if not u.startswith('file://'):
+                continue  # solo archivos locales del escritorio
+            p = unquote(u[7:])
+            if os.path.isfile(p):
+                entries.append(p)
+        if entries:
+            self.upload_local_files(entries, dest)
+        try:
+            ctx.finish(bool(entries), False, time)
+        except Exception:
+            pass
+
+    def upload_local_files(self, local_paths, dest_dir=None):
+        ctx = self.get_ctx(self.term) if self.term else None
+        if not ctx or ctx['channel'] is None:
+            msgbox(_("Abra primero una consola para subir archivos"))
+            return
+        dest = dest_dir or ctx['path']
+        if dest is None:
+            return
+        def worker():
+            ok = 0
+            err = None
+            for lp in local_paths:
+                name = os.path.basename(lp)
+                r = (dest.rstrip('/') + '/' + name) if dest != '/' else '/' + name
+                try:
+                    ctx['channel'].put(lp, r)
+                    ok += 1
+                except Exception as e:
+                    err = str(e)[:120]
+            GLib.idle_add(self._on_upload_done, self.term, ok, len(local_paths), err)
+        t = threading.Thread(target=worker)
+        t.daemon = True
+        t.start()
+
+    def _on_upload_done(self, term, ok, total, err):
+        if self.wmain is None:
+            return False
+        if err:
+            msgbox("%s: %s" % (_("Error al subir"), err))
+        if self.term is term and self.get_visible():
+            self.reload()
+        return False
+    #-- }
+
+    #-- doble clic: abrir/editar {
+    def on_row_activated(self, tree, path_treepath, column):
+        it = self.store.get_iter(path_treepath)
+        if not self.store.get_value(it, FilePanel.COL_DIR):
+            self.edit_file(self.store.get_value(it, FilePanel.COL_PATH))
+        else:
+            tree.toggle_expander(path_treepath)
+
+    def edit_file(self, rpath):
+        ctx = self.get_ctx(self.term)
+        ch = ctx['channel']
+        if ch is None:
+            return
+        if any(ed['remote'] == rpath for ed in ctx.get('editing', [])):
+            return  # ya esta en edicion
+        if isinstance(ch, gcm_sftp.LocalChannel):
+            try:
+                subprocess.Popen(['xdg-open', rpath],
+                                 stdout=None, stderr=None,
+                                 preexec_fn=os.setsid)
+            except Exception as e:
+                msgbox("%s: %s" % (_("Error al abrir"), str(e)[:120]))
+            return
+        # remoto: descarga a un temporal; al guardar en el editor, resubir
+        name = rpath.rsplit('/', 1)[-1]
+        tmpdir = tempfile.mkdtemp(prefix='gcm-edit-')
+        tmp = os.path.join(tmpdir, name)
+        try:
+            ch.get(rpath, tmp)
+        except Exception as e:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            msgbox("%s: %s" % (_("Error al descargar"), str(e)[:120]))
+            return
+        if 'editing' not in ctx:
+            ctx['editing'] = []
+        ctx['editing'].append({'tmp': tmp, 'remote': rpath,
+                               'mtime': os.path.getmtime(tmp)})
+        if not hasattr(self, '_edit_timer') or self._edit_timer is None:
+            self._edit_timer = GLib.timeout_add(2000, self._check_edits)
+        try:
+            subprocess.Popen(['xdg-open', tmp], stdout=None, stderr=None,
+                             preexec_fn=os.setsid)
+        except Exception as e:
+            msgbox("%s: %s" % (_("Error al abrir"), str(e)[:120]))
+
+    def _check_edits(self):
+        # recorre las consolas con archivos en edicion y resube los modificados
+        try:
+            todo = []
+            for term in self.wmain.terminals_list():
+                ctx = self.get_ctx(term)
+                for ed in ctx.get('editing', []):
+                    try:
+                        m = os.path.getmtime(ed['tmp'])
+                    except OSError:
+                        continue
+                    if m > ed['mtime']:
+                        ed['mtime'] = m
+                        todo.append((term, ed))
+            for term, ed in todo:
+                self._upload_edit(term, ed)
+            return True
+        except Exception:
+            return False
+
+    def _upload_edit(self, term, ed):
+        ctx = self.get_ctx(term)
+        ch = ctx['channel']
+        def worker():
+            try:
+                if ch is not None:
+                    ch.put(ed['tmp'], ed['remote'])
+                    GLib.idle_add(self._on_edit_uploaded, term, ed, None)
+                else:
+                    # canal cerrado: dejar el temporal para recuperacion manual
+                    GLib.idle_add(self._on_edit_uploaded, term, ed, "canal cerrado")
+            except Exception as e:
+                GLib.idle_add(self._on_edit_uploaded, term, ed, str(e)[:120])
+        t = threading.Thread(target=worker)
+        t.daemon = True
+        t.start()
+
+    def _on_edit_uploaded(self, term, ed, err):
+        if self.wmain is None:
+            return False
+        if err:
+            msgbox("%s: %s\n%s" % (_("Error al subir el archivo modificado"), err,
+                                    ed['tmp']))
+        else:
+            if self.term is term and self.get_visible():
+                self.reload()
+        return False
+    #-- }
     #-- }
 
 

@@ -1446,3 +1446,71 @@ msgstr "Mostra amministratore file"
 #: panel-files
 msgid "Mostrar u ocultar el administrador de archivos"
 msgstr "Mostra o nasconde l'amministratore file"
+
+#: panel-files
+msgid "Subir un nivel"
+msgstr "Livello superiore"
+
+#: panel-files
+msgid "Inicio del servidor"
+msgstr "Home del server"
+
+#: panel-files
+msgid "Refrescar"
+msgstr "Aggiorna"
+
+#: panel-files
+msgid "Sincronizar con el directorio del terminal"
+msgstr "Sincronizza con la cartella del terminale"
+
+#: panel-files
+msgid "Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"
+msgstr "Attiva il monitoraggio della cartella del terminale (inietta PROMPT_COMMAND)"
+
+#: panel-files
+msgid "Instale python3-paramiko para SFTP"
+msgstr "Installa python3-paramiko per SFTP"
+
+#: panel-files
+msgid "SFTP no disponible para sesiones %s"
+msgstr "SFTP non disponibile per sessioni %s"
+
+#: panel-files
+msgid "Error SFTP"
+msgstr "Errore SFTP"
+
+#: panel-files
+msgid "Host desconocido"
+msgstr "Host sconosciuto"
+
+#: panel-files
+msgid "Huella digital"
+msgstr "Impronta digitale"
+
+#: panel-files
+msgid "Confia y conecta"
+msgstr "Fidati e connetti"
+
+#: panel-files
+msgid "Conexion cancelada (host key no confiable)"
+msgstr "Connessione annullata (host key non attendibile)"
+
+#: panel-files
+msgid "Abra primero una consola para subir archivos"
+msgstr "Apri prima una console per caricare file"
+
+#: panel-files
+msgid "Error al subir"
+msgstr "Errore durante il caricamento"
+
+#: panel-files
+msgid "Error al abrir"
+msgstr "Errore durante l'apertura"
+
+#: panel-files
+msgid "Error al descargar"
+msgstr "Errore durante il download"
+
+#: panel-files
+msgid "Error al subir el archivo modificado"
+msgstr "Errore nel ricaricare il file modificato"

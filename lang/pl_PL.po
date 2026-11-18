@@ -1367,3 +1367,71 @@ msgstr "Pokaz menedzer plikow"
 #: panel-files
 msgid "Mostrar u ocultar el administrador de archivos"
 msgstr "Pokaz lub ukryj menedzer plikow"
+
+#: panel-files
+msgid "Subir un nivel"
+msgstr "Poziom wyüej"
+
+#: panel-files
+msgid "Inicio del servidor"
+msgstr "Katalog zdalny"
+
+#: panel-files
+msgid "Refrescar"
+msgstr "Odśwież"
+
+#: panel-files
+msgid "Sincronizar con el directorio del terminal"
+msgstr "Synchronizuj z katalogiem terminala"
+
+#: panel-files
+msgid "Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"
+msgstr "Śledź katalog terminala (wstrzykuje PROMPT_COMMAND)"
+
+#: panel-files
+msgid "Instale python3-paramiko para SFTP"
+msgstr "Zainstaluj python3-paramiko dla SFTP"
+
+#: panel-files
+msgid "SFTP no disponible para sesiones %s"
+msgstr "SFTP niedostępne dla sesji %s"
+
+#: panel-files
+msgid "Error SFTP"
+msgstr "Błąd SFTP"
+
+#: panel-files
+msgid "Host desconocido"
+msgstr "Nieznany host"
+
+#: panel-files
+msgid "Huella digital"
+msgstr "Odcisk palca"
+
+#: panel-files
+msgid "Confia y conecta"
+msgstr "Zaufaj połącz"
+
+#: panel-files
+msgid "Conexion cancelada (host key no confiable)"
+msgstr "Połączenie anulowane (klucz hosta niezaufany)"
+
+#: panel-files
+msgid "Abra primero una consola para subir archivos"
+msgstr "Najpierw otwórz konsolę, aby wgrać pliki"
+
+#: panel-files
+msgid "Error al subir"
+msgstr "Błąd przesyłania"
+
+#: panel-files
+msgid "Error al abrir"
+msgstr "Błąd otwierania"
+
+#: panel-files
+msgid "Error al descargar"
+msgstr "Błąd pobierania"
+
+#: panel-files
+msgid "Error al subir el archivo modificado"
+msgstr "Błąd ponownego wgrywania pliku"

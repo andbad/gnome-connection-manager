@@ -1,6 +1,6 @@
 PKG_NAME=gnome-connection-manager
 PKG_DESCRIPTION="Simple tabbed ssh and telnet connection manager for GTK+ environments\nMore info in http://kuthulu.com/gcm"
-PKG_VERSION=1.2.1
+PKG_VERSION=1.2.1.3
 PKG_MAINTAINER="Renzo Bertuzzi <kuthulu@gmail.com>"
 PKG_VENDOR=kuthulu.com
 PKG_URL=http://kuthulu.com/gcm
@@ -24,7 +24,7 @@ install: translate
 	gzip -9 $(DESTDIR)/usr/share/doc/$(PKG_NAME)/changelog
 	cp gnome-connection-manager.desktop $(DESTDIR)/usr/share/applications
 	cp LICENSE $(DESTDIR)/usr/share/doc/$(PKG_NAME)/copyright
-	cp -r lang donate.gif gnome_connection_manager.py gnome-connection-manager.glade icon.png pyAES.py SimpleGladeApp.py ssh.expect urlregex.py style.css $(DESTDIR)/usr/share/gnome-connection-manager/
+	cp -r lang donate.gif gnome_connection_manager.py gcm_sftp.py gnome-connection-manager.glade icon.png pyAES.py SimpleGladeApp.py ssh.expect urlregex.py style.css $(DESTDIR)/usr/share/gnome-connection-manager/
 
 #compile translation files
 translate:
@@ -49,6 +49,7 @@ deb:
 		-d python3-gi \
 		-d expect \
 		-d gir1.2-vte-2.91 \
+		--deb-recommends python3-paramiko \
 		--after-install postinst \
 		--deb-priority optional \
 		usr

@@ -4,6 +4,7 @@
 
 import os
 import stat
+import shutil
 
 try:
     import paramiko
@@ -37,6 +38,12 @@ class ChannelBase:
         raise NotImplementedError
 
     def stat(self, path):
+        raise NotImplementedError
+
+    def get(self, remote_path, local_path):
+        raise NotImplementedError
+
+    def put(self, local_path, remote_path):
         raise NotImplementedError
 
     def error(self):
@@ -76,6 +83,12 @@ class LocalChannel(ChannelBase):
         return {'name': os.path.basename(path.rstrip('/')) or path,
                 'dir': stat.S_ISDIR(st.st_mode), 'link': False,
                 'size': st.st_size, 'mtime': st.st_mtime, 'path': path}
+
+    def get(self, remote_path, local_path):
+        shutil.copy(remote_path, local_path)
+
+    def put(self, local_path, remote_path):
+        shutil.copy(local_path, remote_path)
 
 
 class _MissingPolicy:
@@ -128,6 +141,18 @@ class SftpChannel(ChannelBase):
         return {'name': os.path.basename(path.rstrip('/')) or path,
                 'dir': stat.S_ISDIR(a.st_mode or 0), 'link': False,
                 'size': a.st_size or 0, 'mtime': a.st_mtime or 0, 'path': path}
+
+    def get(self, remote_path, local_path):
+        try:
+            self.sftp.get(remote_path, local_path)
+        except IOError as e:
+            raise SftpError(str(e))
+
+    def put(self, local_path, remote_path):
+        try:
+            self.sftp.put(local_path, remote_path)
+        except IOError as e:
+            raise SftpError(str(e))
 
     def close(self):
         try:

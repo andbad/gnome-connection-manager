@@ -1549,3 +1549,71 @@ msgstr "Show File Manager"
 #: panel-files
 msgid "Mostrar u ocultar el administrador de archivos"
 msgstr "Show or hide the file manager"
+
+#: panel-files
+msgid "Subir un nivel"
+msgstr "Up one level"
+
+#: panel-files
+msgid "Inicio del servidor"
+msgstr "Server home"
+
+#: panel-files
+msgid "Refrescar"
+msgstr "Refresh"
+
+#: panel-files
+msgid "Sincronizar con el directorio del terminal"
+msgstr "Sync with terminal directory"
+
+#: panel-files
+msgid "Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"
+msgstr "Follow terminal directory (injects PROMPT_COMMAND)"
+
+#: panel-files
+msgid "Instale python3-paramiko para SFTP"
+msgstr "Install python3-paramiko for SFTP"
+
+#: panel-files
+msgid "SFTP no disponible para sesiones %s"
+msgstr "SFTP not available for %s sessions"
+
+#: panel-files
+msgid "Error SFTP"
+msgstr "SFTP error"
+
+#: panel-files
+msgid "Host desconocido"
+msgstr "Unknown host"
+
+#: panel-files
+msgid "Huella digital"
+msgstr "Fingerprint"
+
+#: panel-files
+msgid "Confia y conecta"
+msgstr "Trust and connect"
+
+#: panel-files
+msgid "Conexion cancelada (host key no confiable)"
+msgstr "Connection canceled (untrusted host key)"
+
+#: panel-files
+msgid "Abra primero una consola para subir archivos"
+msgstr "Open a console first to upload files"
+
+#: panel-files
+msgid "Error al subir"
+msgstr "Upload error"
+
+#: panel-files
+msgid "Error al abrir"
+msgstr "Error opening"
+
+#: panel-files
+msgid "Error al descargar"
+msgstr "Download error"
+
+#: panel-files
+msgid "Error al subir el archivo modificado"
+msgstr "Error re-uploading modified file"

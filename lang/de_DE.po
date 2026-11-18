@@ -1456,3 +1456,71 @@ msgstr "Dateiverwaltung anzeigen"
 #: panel-files
 msgid "Mostrar u ocultar el administrador de archivos"
 msgstr "Dateiverwaltung ein-/ausblenden"
+
+#: panel-files
+msgid "Subir un nivel"
+msgstr "Eine Ebene höher"
+
+#: panel-files
+msgid "Inicio del servidor"
+msgstr "Server-Home"
+
+#: panel-files
+msgid "Refrescar"
+msgstr "Aktualisieren"
+
+#: panel-files
+msgid "Sincronizar con el directorio del terminal"
+msgstr "Mit Terminalverzeichnis synchronisieren"
+
+#: panel-files
+msgid "Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"
+msgstr "Terminal-Verzeichnis verfolgen (PROMPT_COMMAND einfügen)"
+
+#: panel-files
+msgid "Instale python3-paramiko para SFTP"
+msgstr "python3-paramiko für SFTP installieren"
+
+#: panel-files
+msgid "SFTP no disponible para sesiones %s"
+msgstr "SFTP für %s-Sitzungen nicht verfügbar"
+
+#: panel-files
+msgid "Error SFTP"
+msgstr "SFTP-Fehler"
+
+#: panel-files
+msgid "Host desconocido"
+msgstr "Unbekannter Host"
+
+#: panel-files
+msgid "Huella digital"
+msgstr "Fingerabdruck"
+
+#: panel-files
+msgid "Confia y conecta"
+msgstr "Vertrauen und verbinden"
+
+#: panel-files
+msgid "Conexion cancelada (host key no confiable)"
+msgstr "Verbindung abgebrochen (Host-Key nicht vertrauenswürdig)"
+
+#: panel-files
+msgid "Abra primero una consola para subir archivos"
+msgstr "Zum Hochladen zuerst ein Terminal öffnen"
+
+#: panel-files
+msgid "Error al subir"
+msgstr "Fehler beim Hochladen"
+
+#: panel-files
+msgid "Error al abrir"
+msgstr "Fehler beim Öffnen"
+
+#: panel-files
+msgid "Error al descargar"
+msgstr "Fehler beim Herunterladen"
+
+#: panel-files
+msgid "Error al subir el archivo modificado"
+msgstr "Fehler beim Hochladen der geänderten Datei"

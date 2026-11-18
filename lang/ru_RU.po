@@ -1385,3 +1385,71 @@ msgstr "Показать файловый менеджер"
 #: panel-files
 msgid "Mostrar u ocultar el administrador de archivos"
 msgstr "Показать или скрыть файловый менеджер"
+
+#: panel-files
+msgid "Subir un nivel"
+msgstr "На уровень выше"
+
+#: panel-files
+msgid "Inicio del servidor"
+msgstr "Домашняя папка"
+
+#: panel-files
+msgid "Refrescar"
+msgstr "Обновить"
+
+#: panel-files
+msgid "Sincronizar con el directorio del terminal"
+msgstr "Синхронизировать с каталогом терминала"
+
+#: panel-files
+msgid "Activar seguimiento del directorio del terminal (inyecta PROMPT_COMMAND)"
+msgstr "Следить за каталогом терминала"
+
+#: panel-files
+msgid "Instale python3-paramiko para SFTP"
+msgstr "Установите python3-paramiko для SFTP"
+
+#: panel-files
+msgid "SFTP no disponible para sesiones %s"
+msgstr "SFTP недоступен для сессий %s"
+
+#: panel-files
+msgid "Error SFTP"
+msgstr "Ошибка SFTP"
+
+#: panel-files
+msgid "Host desconocido"
+msgstr "Неизвестный хост"
+
+#: panel-files
+msgid "Huella digital"
+msgstr "Отпечаток"
+
+#: panel-files
+msgid "Confia y conecta"
+msgstr "Доверить и подключить"
+
+#: panel-files
+msgid "Conexion cancelada (host key no confiable)"
+msgstr "Подключение отменено (ненадёжный ключ хоста)"
+
+#: panel-files
+msgid "Abra primero una consola para subir archivos"
+msgstr "Сначала откройте консоль для загрузки файлов"
+
+#: panel-files
+msgid "Error al subir"
+msgstr "Ошибка загрузки"
+
+#: panel-files
+msgid "Error al abrir"
+msgstr "Ошибка при открытии"
+
+#: panel-files
+msgid "Error al descargar"
+msgstr "Ошибка загрузки"
+
+#: panel-files
+msgid "Error al subir el archivo modificado"
+msgstr "Ошибка загрузки изменённого файла"

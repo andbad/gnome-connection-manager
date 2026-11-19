@@ -6,6 +6,7 @@ import os
 import stat
 import shutil
 import socket
+import unicodedata
 
 try:
     import paramiko
@@ -171,6 +172,35 @@ class SftpChannel(ChannelBase):
             pass
 
 
+def usable_password(pw):
+    '''True se la password salvata e' utilizzabile: decifrata bene e senza
+    caratteri di controllo (le password decifrate con la chiave sbagliata
+    escono come spazzatura binaria: meglio non usarle e chiederle all'utente)'''
+    if not pw:
+        return False
+    return all(not unicodedata.category(c).startswith('C') for c in pw)
+
+
+def describe_auth_error(auth_exc, key_errors, second_exc=None):
+    '''messaggio leggibile: distingue chiave mancante/invalida, password
+    assente e credenziali rifiutate'''
+    parts = []
+    base = ''
+    if key_errors:
+        parts.append('; '.join(key_errors))
+    if auth_exc is not None:
+        base = str(auth_exc).strip().rstrip('.')
+        if base:
+            parts.append(base)
+    if second_exc is not None:
+        b2 = str(second_exc).strip().rstrip('.')
+        if b2 and b2 != base:
+            parts.append(b2)
+    if not parts:
+        parts.append("autenticacion rechazada")
+    return '. '.join(parts) + '.'
+
+
 def load_one_key(path, passphrase=None):
     '''carica una chiave privata provando tutti gli algoritmi; solleva
     SSHException se nessuna coincide. Se l'utente indico per errore il file
@@ -184,9 +214,9 @@ def load_one_key(path, passphrase=None):
                 tried_pub = True
                 continue
             raise paramiko.SSHException(
-                "%s e' una chiave pubblica" % os.path.basename(path))
+                "%s es una clave publica" % os.path.basename(path))
         if not os.path.exists(path):
-            raise paramiko.SSHException("file chiave non trovato: %s" % path)
+            raise paramiko.SSHException("archivo de clave no encontrado: %s" % path)
         last_err = None
         for cls in (paramiko.RSAKey, paramiko.ECDSAKey, paramiko.Ed25519Key,
                     paramiko.DSSKey):
@@ -217,7 +247,6 @@ class AuthInteractive:
         self.handler = handler
         self.password_prompt_used = False
         self.canceled = False
-        self.prompt_needed = False
 
     def __call__(self, title, instructions, prompt_list):
         responses = []
@@ -228,13 +257,7 @@ class AuthInteractive:
                 self.password_prompt_used = True
                 responses.append(self.saved_password)
                 continue
-            if self.canceled or self.prompt_needed:
-                responses.append('')
-                continue
-            if self.handler is None:
-                # nessun popup disponibile: il chiamante puo' ritentare con
-                # interactive=handler (secondo tentativo con GUI)
-                self.prompt_needed = True
+            if self.canceled:
                 responses.append('')
                 continue
             answer = self.handler(prompt)
@@ -286,7 +309,20 @@ def _interactive_auth(host, port, user, ai, known_hosts_path, accept_key_for=Non
             client.save_host_keys(known_hosts_path) if known_hosts_path else None
         elif server_key not in list(keys.values()):
             raise paramiko.BadHostKeyException(host, server_key, list(keys.values())[0])
-        t.auth_interactive(user or None, ai)
+        try:
+            t.auth_interactive(user or None, ai)
+        except paramiko.BadAuthenticationType as ba:
+            if 'password' not in ba.allowed_types:
+                raise
+            # server che offre solo auth password: chiedi la password (un solo
+            # prompt) e usa auth_password
+            if ai.canceled or ai.handler is None:
+                raise
+            pw = ai.handler("Password: ")
+            if pw is None:
+                ai.canceled = True
+                raise
+            t.auth_password(user or None, pw)
         return client
     except Exception:
         try:
@@ -309,6 +345,11 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
 
     key_errors = []
     pkey = None
+    if password and not usable_password(password):
+        # decifrata male (chiave di cifratura cambiata): non usarla in modo
+        # automatico, sara' chiesta all'utente via popup quando necessario
+        key_errors.append("password salvata non decifrabile")
+        password = None
     if private_key and private_key.strip():
         try:
             pkey = load_one_key(private_key.strip(), password or None)
@@ -332,13 +373,16 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
     except (paramiko.AuthenticationException, paramiko.BadAuthenticationType,
             paramiko.PasswordRequiredException) as e:
         auth_exc = e
+    if auth_exc is not None and interactive is None:
+        # nessun popup disponibile: il chiamante (GUI) puo' ritentare passando
+        # interactive=handler; niente tentativo cieco (evita login falliti nei
+        # log del server quando mancano le credenziali)
+        raise AuthenticationPromptRequired(describe_auth_error(auth_exc, key_errors))
     if auth_exc is not None:
-        # reintento con keyboard-interactive (OTP o password interactiva).
-        # Si falli anche li, si propaga AuthenticationPromptRequired affinche
-        # il chiamante possa ripetere con un handler (popup OTP) funzionante.
-        # Nota: non si lanciano eccezioni dentro l'handler interactive (verrebbe
-        # ucciso il thread del transport): AuthInteractive registra i flags e
-        # risponde vuoto, lasciando fallire l'autenticazione in modo pulito.
+        # reintento con keyboard-interactive (OTP o password interactiva) su un
+        # transport nuovo. Nota: dentro l'handler non si lanciano eccezioni (
+        # gira sul thread del transport e ucciderebbe la connessione):
+        # AuthInteractive registra i flags e lascia fallire in modo pulito.
         ai = AuthInteractive(password, interactive)
         try:
             client = _interactive_auth(host, port, user, ai, known_hosts_path,
@@ -348,10 +392,7 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
         except Exception as e2:
             if ai.canceled:
                 raise SftpError("autenticacion cancelada por el usuario")
-            msg = str(auth_exc) if str(auth_exc) else str(e2)
-            if key_errors:
-                msg += " (chiave privata: %s)" % '; '.join(key_errors)
-            raise AuthenticationPromptRequired(msg, ai)
+            raise AuthenticationPromptRequired(describe_auth_error(auth_exc, key_errors, e2), ai)
     if accept_key_for == host:
         # el usuario Confio en la key desconocida (AutoAddPolicy la agrego a los
         # host keys del cliente): persistirla en nuestro known_hosts

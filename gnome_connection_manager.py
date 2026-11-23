@@ -2862,6 +2862,8 @@ class Host():
             # texto cifrado original cuando la passw no pudo descifrarse (clave
             # incorrecta): se conserva para no destruir datos al re-escribir
             self.raw_pass = self.get_arg(args, None)
+            # OTP/2FA: non auto-connettere il pannello file su questo host
+            self.otp = self.get_arg(args, False)
         except:
             pass
 
@@ -2878,7 +2880,7 @@ class Host():
         return ",".join(self.tunnel)
 
     def clone(self):
-        return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term, self.font_size, self.raw_pass)
+        return Host(self.group, self.name, self.description, self.host, self.user, self.password, self.private_key, self.port, self.tunnel_as_string(), self.type, self.commands, self.keep_alive, self.font_color, self.back_color, self.x11, self.agent, self.compression, self.compressionLevel, self.extra_params, self.log, self.backspace_key, self.delete_key, self.term, self.font_size, self.raw_pass, self.otp)
 
 class HostUtils:
     @staticmethod
@@ -2923,7 +2925,8 @@ class HostUtils:
         delete_key = int(HostUtils.get_val(cp, section, "delete-key", int(Vte.EraseBinding.AUTO)))
         term = HostUtils.get_val(cp, section, "term", "")
         font_size = HostUtils.get_val(cp, section, "font-size", "")
-        h = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size, raw_pass)
+        otp = HostUtils.get_val(cp, section, "otp", False)
+        h = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size, raw_pass, otp)
         return h
 
     @staticmethod
@@ -2959,6 +2962,7 @@ class HostUtils:
         cp.set(section, "delete-key", host.delete_key)
         cp.set(section, "term", host.term)
         cp.set(section, "font-size", str(host.font_size))
+        cp.set(section, "otp", host.otp)
 
 class Whost(SimpleGladeApp):
 
@@ -3040,6 +3044,9 @@ class Whost(SimpleGladeApp):
         self.cmbDelete = self.get_widget("cmbDelete")
         self.txtTerm = self.get_widget("txtTerm")
         self.txtFontSize = self.get_widget("txtFontSize")
+        # OTP checkbox - solo per SSH
+        self.chkOtp = self.get_widget("chkOtp")
+        self.chkOtp.set_sensitive(False)  # disabilitato finché non si sceglie tipo
         # Done programaticaly because engine does not see top-level abjustment object
         txtFontSizeAdjustment = Gtk.Adjustment(value=10, lower=6, upper=72, step_increment=1, page_increment=4)
         self.txtFontSize.set_adjustment(txtFontSizeAdjustment)
@@ -3116,6 +3123,8 @@ class Whost(SimpleGladeApp):
         self.cmbDelete.set_active(host.delete_key)
         self.update_texttags()
         self.txtTerm.set_text(host.term)
+        # OTP
+        self.chkOtp.set_active(bool(getattr(host, 'otp', False)))
         use_font_size = host.font_size!='' and host.font_size!=None
         self.get_widget("chkDefaultFontSize").set_active(not use_font_size)
         self.txtFontSize.set_sensitive(use_font_size)
@@ -3173,6 +3182,7 @@ class Whost(SimpleGladeApp):
         compressionLevel = self.txtCompressionLevel.get_text().strip()
         extra_params = self.txtExtraParams.get_text()
         log = self.chkLogging.get_active()
+        otp = self.chkOtp.get_active() if self.chkOtp.is_sensitive() else False
         backspace_key = self.cmbBackspace.get_active()
         delete_key = self.cmbDelete.get_active()
 
@@ -3206,7 +3216,7 @@ class Whost(SimpleGladeApp):
         if password == '' and getattr(self, 'orig_host', None) is not None:
             raw_pass = getattr(self.orig_host, 'raw_pass', None)
 
-        host = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size, raw_pass)
+        host = Host(group, name, description, host, user, password, private_key, port, tunnel, ctype, commands, keepalive, fcolor, bcolor, x11, agent, compression, compressionLevel,  extra_params, log, backspace_key, delete_key, term, font_size, raw_pass, otp)
 
         try:
             #Guardar
@@ -3281,8 +3291,12 @@ class Whost(SimpleGladeApp):
             self.txtCompressionLevel.set_sensitive(self.chkCompression.get_active())
             self.txtPrivateKey.set_sensitive(True)
             self.btnBrowse.set_sensitive(True)
+            self.chkOtp.set_sensitive(True)
             port = "22"
         else:
+            self.chkOtp.set_sensitive(False)
+            if widget.get_active_text() == "":
+                self.chkOtp.set_active(False)
             self.get_widget("tunnelGrid").hide()
             self.txtKeepAlive.set_text('0')
             self.txtKeepAlive.set_sensitive(False)
@@ -3889,6 +3903,12 @@ class FilePanel(Gtk.Box):
         self.path_label.set_margin_end(4)
         self.pack_start(self.path_label, False, False, 0)
 
+        # pulsante "Connetti" per host OTP (niente auto-connect)
+        self.btn_connect = Gtk.Button(label=_("Connetti"))
+        self.btn_connect.set_visible(False)
+        self.btn_connect.connect('clicked', lambda b: self._on_connect_clicked())
+        self.pack_start(self.btn_connect, False, False, 0)
+
         self.store = Gtk.TreeStore(str, str, str, bool, str)
         self.tree = Gtk.TreeView(model=self.store)
         self.tree.set_headers_visible(False)
@@ -3941,6 +3961,12 @@ class FilePanel(Gtk.Box):
             ctx['channel'] = None
             ctx['path'] = None
             ctx['error'] = None
+        # OTP: niente auto-connect; si aspetta che l'utente prema "Connetti"
+        if remote and getattr(host, 'otp', False) and not ctx.get('connecting'):
+            self.btn_connect.set_visible(True)
+            self.sc.set_visible(False)
+            self.set_placeholder_otp()
+            return
         if ctx['channel'] is None and ctx['error'] is None and not ctx['connecting']:
             self.connect_channel(term)
         elif ctx['channel'] is not None:
@@ -3952,8 +3978,34 @@ class FilePanel(Gtk.Box):
         ctx = self.get_ctx(self.term) if self.term else None
         msg = text or (ctx and ctx.get('error')) or _("Sin conexion SFTP")
         self.path_label.set_text("")
+        self.btn_connect.set_visible(False)
+        self.sc.set_visible(True)
         self.store.clear()
         self.store.append(None, ['dialog-information', msg, '', False, ''])
+
+    def set_placeholder_otp(self):
+        '''Placeholder per host OTP: mostra pulsante Connetti'''
+        self.path_label.set_text(_("Host OTP: premi Connetti per aprire SFTP"))
+        self.btn_connect.set_visible(True)
+        self.sc.set_visible(False)
+        self.store.clear()
+
+    def _on_connect_clicked(self):
+        '''Avvia la connessione SFTP per host OTP (dopo che l'utente prema "Connetti")'''
+        if not self.term:
+            return
+        ctx = self.get_ctx(self.term)
+        # se gia' in corso o gia' connesso, ignora
+        if ctx['connecting'] or ctx['channel'] is not None:
+            return
+        ctx['connecting'] = True
+        self.btn_connect.set_visible(False)
+        self.sc.set_visible(False)
+        self.path_label.set_text("")
+        self.store.clear()
+        t = threading.Thread(target=self._connect_worker, args=(self.term, False))
+        t.daemon = True
+        t.start()
 
     #-- canal {
     def connect_channel(self, term):
@@ -3997,6 +4049,12 @@ class FilePanel(Gtk.Box):
                 ch = gcm_sftp.connect_ssh(*common,
                                           accept_key_for=host.host if accept_key else None,
                                           interactive=self._ask_user_sync)
+                # auto-apprendi OTP: se il popup si e' chiuso e la connessione ha
+                # avuto successo, l'host e' OTP — lo segniamo cosi' non serve piu'
+                # che l'utente configuri manualmente la checkbox in Proprieta'
+                if not getattr(host, 'otp', False):
+                    host.otp = True
+                    GLib.idle_add(wMain.writeConfig)
             remote_home = '/'
             try:
                 remote_home = ch.sftp.normalize('.') or '/'

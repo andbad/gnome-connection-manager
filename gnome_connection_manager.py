@@ -3972,7 +3972,7 @@ class FilePanel(Gtk.Box):
             ctx['path'] = None
             ctx['error'] = None
         # OTP: niente auto-connect; se aspetta che l'utente prema "Connetti"
-        if remote and getattr(host, 'otp', False) and not ctx.get('connecting'):
+        if remote and getattr(host, 'otp', False) and ctx['channel'] is None and not ctx.get('connecting'):
             if ctx.get('error'):
                 # errore precedente: mostra il messaggio, niente pulsante
                 self.set_placeholder()
@@ -4430,6 +4430,10 @@ class FilePanel(Gtk.Box):
             self.edit_file(self.store.get_value(it, FilePanel.COL_PATH))
         else:
             tree.toggle_expander(path_treepath)
+        # segnala a Wmain che il doppio-click è stato gestito dal pannello file
+        # (evita che on_hpMain_button_press_event attivi il toggle del pannello)
+        if self.wmain:
+            self.wmain.row_activated = True
 
     def edit_file(self, rpath):
         ctx = self.get_ctx(self.term)

@@ -3909,6 +3909,12 @@ class FilePanel(Gtk.Box):
         self.btn_connect.connect('clicked', lambda b: self._on_connect_clicked())
         self.pack_start(self.btn_connect, False, False, 0)
 
+        # pulsante "Riprova" mostrato dopo un errore di connessione OTP
+        self.btn_retry = Gtk.Button(label=_("Riprova"))
+        self.btn_retry.set_visible(False)
+        self.btn_retry.connect('clicked', lambda b: self._on_retry_clicked())
+        self.pack_start(self.btn_retry, False, False, 0)
+
         self.store = Gtk.TreeStore(str, str, str, bool, str)
         self.tree = Gtk.TreeView(model=self.store)
         self.tree.set_headers_visible(False)
@@ -3961,11 +3967,15 @@ class FilePanel(Gtk.Box):
             ctx['channel'] = None
             ctx['path'] = None
             ctx['error'] = None
-        # OTP: niente auto-connect; si aspetta che l'utente prema "Connetti"
+        # OTP: niente auto-connect; se aspetta che l'utente prema "Connetti"
         if remote and getattr(host, 'otp', False) and not ctx.get('connecting'):
-            self.btn_connect.set_visible(True)
-            self.sc.set_visible(False)
-            self.set_placeholder_otp()
+            if ctx.get('error'):
+                # errore precedente: mostra il messaggio, niente pulsante
+                self.set_placeholder()
+            else:
+                self.btn_connect.set_visible(True)
+                self.sc.set_visible(False)
+                self.set_placeholder_otp()
             return
         if ctx['channel'] is None and ctx['error'] is None and not ctx['connecting']:
             self.connect_channel(term)
@@ -3979,6 +3989,10 @@ class FilePanel(Gtk.Box):
         msg = text or (ctx and ctx.get('error')) or _("Sin conexion SFTP")
         self.path_label.set_text("")
         self.btn_connect.set_visible(False)
+        # se c'era un errore su un host OTP, offri il pulsante Riprova
+        host = getattr(self.term, 'host', None) if self.term else None
+        is_otp = bool(host and getattr(host, 'otp', False) and host.host not in ('', None))
+        self.btn_retry.set_visible(bool(ctx and ctx.get('error')) and is_otp)
         self.sc.set_visible(True)
         self.store.clear()
         self.store.append(None, ['dialog-information', msg, '', False, ''])
@@ -3987,6 +4001,7 @@ class FilePanel(Gtk.Box):
         '''Placeholder per host OTP: mostra pulsante Connetti'''
         self.path_label.set_text(_("Host OTP: premi Connetti per aprire SFTP"))
         self.btn_connect.set_visible(True)
+        self.btn_retry.set_visible(False)
         self.sc.set_visible(False)
         self.store.clear()
 
@@ -3999,6 +4014,7 @@ class FilePanel(Gtk.Box):
         if ctx['connecting'] or ctx['channel'] is not None:
             return
         ctx['connecting'] = True
+        ctx['error'] = None  # pulisci eventuali errori precedenti
         self.btn_connect.set_visible(False)
         self.sc.set_visible(False)
         self.path_label.set_text("")
@@ -4006,6 +4022,17 @@ class FilePanel(Gtk.Box):
         t = threading.Thread(target=self._connect_worker, args=(self.term, False))
         t.daemon = True
         t.start()
+
+    def _on_retry_clicked(self):
+        '''Pulsante Riprova: azzera l'errore e mostra di nuovo il pulsante Connetti'''
+        if not self.term:
+            return
+        ctx = self.get_ctx(self.term)
+        ctx['error'] = None
+        self.store.clear()
+        self.btn_connect.set_visible(True)
+        self.sc.set_visible(False)
+        self.set_placeholder_otp()
 
     #-- canal {
     def connect_channel(self, term):
@@ -4132,8 +4159,9 @@ class FilePanel(Gtk.Box):
         ctx = self.get_ctx(term)
         ctx['connecting'] = False
         ctx['error'] = _("Error SFTP") + ": %s" % (err.splitlines()[0] if err else err)
-        if self.term is term:
-            self.set_placeholder()
+        # aggiorna la UI anche se l'utente ha cambiato tab nel frattempo:
+        # il placeholder con l'errore sostituisce il pulsante "Connetti"
+        self.set_placeholder()
         return False
 
     def _on_host_key_prompt(self, term, hk):

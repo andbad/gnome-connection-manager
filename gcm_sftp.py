@@ -436,7 +436,9 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
         except Exception as e2:
             if ai.canceled:
                 raise SftpError("autenticacion cancelada por el usuario")
-            raise AuthenticationPromptRequired(describe_auth_error(auth_exc, key_errors, e2), ai)
+            # l'utente ha gia' risposto al popup: non chiedere di nuovo,
+            # segnalare il fallimento con un messaggio chiaro
+            raise SftpError(describe_auth_error(auth_exc, key_errors, e2))
     if accept_key_for == host:
         # el usuario Confio en la key desconocida (AutoAddPolicy la agrego a los
         # host keys del cliente): persistirla en nuestro known_hosts

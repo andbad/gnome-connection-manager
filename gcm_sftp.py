@@ -249,8 +249,17 @@ class AuthInteractive:
         self.canceled = False
 
     def __call__(self, title, instructions, prompt_list):
+        # istruzioni del server (es. "Invalid username or password"): le
+        # antepongo al primo prompt cosi' il popup le mostra
+        prefix = ''
+        if instructions and instructions.strip():
+            prefix = instructions.strip() + '\n'
+        first = True
         responses = []
         for prompt, echo in prompt_list:
+            if first and prefix:
+                prompt = prefix + prompt
+            first = False
             low = prompt.lower()
             is_pw = ('password' in low or 'contrase' in low or 'passcode' in low)
             if is_pw and not self.password_prompt_used and self.saved_password:
@@ -296,6 +305,9 @@ def _interactive_auth(host, port, user, ai, known_hosts_path, accept_key_for=Non
     t = None
     try:
         t = paramiko.Transport(sock)
+        # OTP: il default di paramiko (30 s) aborta l'autenticazione mentre
+        # l'utente cerca il token; il limite reale lo da' il popup (2 minuti)
+        t.auth_timeout = None
         client._transport = t
         t.start_client(timeout=15)
         # verifica host key come fa SSHClient.connect
@@ -360,7 +372,8 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
     client = _make_client(known_hosts_path, accept_key_for, host)
 
     kw = dict(hostname=host, port=int(port or 22), username=user or None,
-              timeout=15, banner_timeout=15, auth_timeout=15,
+              timeout=15, banner_timeout=15,
+              auth_timeout=240,  # OTP: non interrompere mentre l'utente cerca il token
               allow_agent=True, look_for_keys=not bool(password))
     if password:
         kw['password'] = password

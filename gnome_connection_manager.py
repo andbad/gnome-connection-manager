@@ -4034,6 +4034,7 @@ class FilePanel(Gtk.Box):
                 box = dlg.get_message_area() if hasattr(dlg, 'get_message_area') else dlg.vbox
                 box.pack_start(entry, True, True, 0)
                 dlg.set_default_response(Gtk.ResponseType.OK)
+                entry.grab_focus()
                 dlg.show_all()
                 resp = dlg.run()
                 txt = entry.get_text() if resp == Gtk.ResponseType.OK else None

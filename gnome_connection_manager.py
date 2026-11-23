@@ -3932,6 +3932,9 @@ class FilePanel(Gtk.Box):
         self.tree.append_column(col)
         self.tree.connect('row-expanded', self.on_row_expanded)
         self.tree.connect('row-activated', self.on_row_activated)
+        # ferma la propagazione del doppio-click a hpMain (che userebbe
+        # l'evento per toggleare i pannelli), come fa treeServers
+        self.tree.connect('button-press-event', self._on_tree_button_press)
         # destino de arrastre: archivos del escritorio del usuario -> subir
         self.tree.enable_model_drag_dest([Gtk.TargetEntry.new('text/uri-list', 0, 10)],
                                          Gdk.DragAction.COPY)
@@ -4424,16 +4427,17 @@ class FilePanel(Gtk.Box):
     #-- }
 
     #-- doble clic: abrir/editar {
+    def _on_tree_button_press(self, widget, event):
+        # il doppio/triplo click va gestito dal tree (row-activated):
+        # se torna True non raggiunge mai il gestore di hpMain
+        return event.type in (Gdk.EventType._2BUTTON_PRESS, Gdk.EventType._3BUTTON_PRESS)
+
     def on_row_activated(self, tree, path_treepath, column):
         it = self.store.get_iter(path_treepath)
         if not self.store.get_value(it, FilePanel.COL_DIR):
             self.edit_file(self.store.get_value(it, FilePanel.COL_PATH))
         else:
             tree.toggle_expander(path_treepath)
-        # segnala a Wmain che il doppio-click è stato gestito dal pannello file
-        # (evita che on_hpMain_button_press_event attivi il toggle del pannello)
-        if self.wmain:
-            self.wmain.row_activated = True
 
     def edit_file(self, rpath):
         ctx = self.get_ctx(self.term)

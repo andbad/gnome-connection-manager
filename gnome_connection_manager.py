@@ -3946,6 +3946,10 @@ class FilePanel(Gtk.Box):
         self.pack_start(sc, True, True, 0)
         self.set_placeholder()
         self.show_all()
+        # show_all() rende visibili tutti i widget: nascondi di nuovo i
+        # pulsanti che devono apparire solo in stati specifici
+        self.btn_connect.set_visible(False)
+        self.btn_retry.set_visible(False)
 
     #-- contexto por terminal {
     def get_ctx(self, term):
@@ -4186,6 +4190,9 @@ class FilePanel(Gtk.Box):
         ctx = self.get_ctx(self.term)
         ctx['path'] = path or '/'
         self.path_label.set_text(ctx['path'])
+        self.btn_connect.set_visible(False)
+        self.btn_retry.set_visible(False)
+        self.sc.set_visible(True)
         self.store.clear()
         if ctx['channel'] is None:
             self.set_placeholder()

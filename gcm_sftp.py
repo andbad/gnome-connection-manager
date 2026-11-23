@@ -412,7 +412,7 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
     except paramiko.BadHostKeyException as bh:
         # host noto ma con un algoritmo di host key nuovo: non e' un attacco,
         # si chiede conferma come per un host mai visto
-        _verify_host_key(client, _hk_name(host, port), bh.server_key)
+        _verify_host_key(client, _hk_name(host, port), bh.key)
         raise
     except (paramiko.AuthenticationException, paramiko.BadAuthenticationType,
             paramiko.PasswordRequiredException) as e:

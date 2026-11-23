@@ -4177,8 +4177,7 @@ class FilePanel(Gtk.Box):
             t.start()
         else:
             ctx['error'] = _("Conexion cancelada (host key no confiable)")
-            if self.term is term:
-                self.set_placeholder()
+            self.set_placeholder()
         return False
     #-- }
 

@@ -278,6 +278,27 @@ class AuthInteractive:
         return responses
 
 
+def _hk_name(host, port):
+    p = int(port or 22)
+    return host if p == 22 else "[%s]:%s" % (host, p)
+
+
+def _verify_host_key(client, hk_name, server_key):
+    '''come fa SSHClient ma trattando gli algoritmi separatamente: un host
+    gia noto che oggi presenta un ALGORITMO nuovo (es. prima ecdsa, oggi
+    ed25519) non e' un attacco, e' un cambiamento normale del server: si
+    chiede conferma all'utente (HostKeyPrompt). Se invece l'algoritmo coincide
+    e la chiave e' diversa -> BadHostKeyException (chiave cambiata davvero)'''
+    keys = client.get_host_keys().lookup(hk_name)
+    if not keys:
+        raise HostKeyPrompt(hk_name, server_key)
+    same_algo = keys.get(server_key.get_name())
+    if same_algo is None:
+        raise HostKeyPrompt(hk_name, server_key)
+    if same_algo != server_key:
+        raise paramiko.BadHostKeyException(hk_name, server_key, same_algo)
+
+
 def _make_client(known_hosts_path, accept_key_for=None, host=None):
     client = paramiko.SSHClient()
     if accept_key_for == host:
@@ -309,18 +330,23 @@ def _interactive_auth(host, port, user, ai, known_hosts_path, accept_key_for=Non
         # l'utente cerca il token; il limite reale lo da' il popup (2 minuti)
         t.auth_timeout = None
         client._transport = t
-        t.start_client(timeout=15)
-        # verifica host key come fa SSHClient.connect
-        p = int(port or 22)
-        hk_name = host if p == 22 else "[%s]:%s" % (host, p)
+        # come fa SSHClient.connect: se l'host e' gia' noto, da' priorita
+        # all'algoritmo noto (evita che il server presenti ed25519 quando
+        # known_hosts ha ecdsa: sembrerebbe chiave cambiata)
+        hk_name = _hk_name(host, port)
         keys = client.get_host_keys().lookup(hk_name)
+        if keys:
+            sec_opts = t.get_security_options()
+            first = list(keys.keys())[0]
+            sec_opts.key_types = [first] + [x for x in sec_opts.key_types if x != first]
+        t.start_client(timeout=15)
         server_key = t.get_remote_server_key()
         if not keys:
             # missing policy: HostKeyPrompt se non accettata; AutoAdd l'aggiunge
             client._policy.missing_host_key(client, hk_name, server_key)
             client.save_host_keys(known_hosts_path) if known_hosts_path else None
-        elif server_key not in list(keys.values()):
-            raise paramiko.BadHostKeyException(host, server_key, list(keys.values())[0])
+        else:
+            _verify_host_key(client, hk_name, server_key)
         try:
             t.auth_interactive(user or None, ai)
         except paramiko.BadAuthenticationType as ba:
@@ -383,6 +409,11 @@ def connect_ssh(host, user, port, password, private_key, known_hosts_path,
     auth_exc = None
     try:
         client.connect(**kw)
+    except paramiko.BadHostKeyException as bh:
+        # host noto ma con un algoritmo di host key nuovo: non e' un attacco,
+        # si chiede conferma come per un host mai visto
+        _verify_host_key(client, _hk_name(host, port), bh.server_key)
+        raise
     except (paramiko.AuthenticationException, paramiko.BadAuthenticationType,
             paramiko.PasswordRequiredException) as e:
         auth_exc = e

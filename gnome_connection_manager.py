@@ -2188,9 +2188,12 @@ class Wmain(SimpleGladeApp):
                 if not hasattr(widget, '_fpc') and conf.SHOW_FILES:
                     GLib.idle_add(lambda: self.file_panel.set_context(widget) or False)
         elif isinstance(tab, Gtk.Widget) and hasattr(self, 'file_panel') and conf.SHOW_FILES:
-            # cambio de pagina en un notebook (switch-page pasa la pagina misma)
+            # cambio de pagina en un notebook (switch-page pasa la pagina misma);
+            # on_terminal_click lo forza anche con un click dentro la consola:
+            # se il panel mostra gia' il contesto di questa terminale NON
+            # re-mostrare il listing (invaliderebbe i load SFTP in corso)
             t = self.find_terminal_in(tab)
-            if t is not None:
+            if t is not None and self.file_panel.term is not t:
                 self.file_panel.set_context(t)
         if conf.UPDATE_TITLE and widget != None:
             if isinstance(widget, Vte.Terminal):
@@ -3931,10 +3934,15 @@ class FilePanel(Gtk.Box):
         col.add_attribute(col.get_cells()[2], 'text', FilePanel.COL_SIZE)
         self.tree.append_column(col)
         self.tree.connect('row-expanded', self.on_row_expanded)
+        self.tree.connect('row-collapsed', self.on_row_collapsed)
         self.tree.connect('row-activated', self.on_row_activated)
         # ferma la propagazione del doppio-click a hpMain (che userebbe
         # l'evento per toggleare i pannelli), come fa treeServers
         self.tree.connect('button-press-event', self._on_tree_button_press)
+        # stesso blocco a livello di pannello: copre anche le zone non dentro
+        # l'albero (toolbar, placeholder, area vuota) dove l'evento altrimenti
+        # arriverebbe fino a hpMain e chiudrebbe il pannello
+        self.connect('button-press-event', self._on_panel_button_press)
         # destino de arrastre: archivos del escritorio del usuario -> subir
         self.tree.enable_model_drag_dest([Gtk.TargetEntry.new('text/uri-list', 0, 10)],
                                          Gdk.DragAction.COPY)
@@ -3958,7 +3966,9 @@ class FilePanel(Gtk.Box):
     def get_ctx(self, term):
         if not hasattr(term, '_fpc'):
             term._fpc = {'channel': None, 'path': None, 'follow': False, 'connecting': False,
-                         'error': None}
+                         'error': None, 'expanded': set()}
+        if 'expanded' not in term._fpc:
+            term._fpc['expanded'] = set()
         return term._fpc
 
     def set_context(self, term):
@@ -4191,6 +4201,8 @@ class FilePanel(Gtk.Box):
     #-- listado {
     def show_listing(self, path):
         ctx = self.get_ctx(self.term)
+        # contesto cambiato (navigazione/cambio tab): invalida i load pendenti
+        self.req_id += 1
         ctx['path'] = path or '/'
         self.path_label.set_text(ctx['path'])
         self.btn_connect.set_visible(False)
@@ -4204,7 +4216,9 @@ class FilePanel(Gtk.Box):
 
     def _populate(self, parent_iter, path):
         ctx = self.get_ctx(self.term)
-        self.req_id += 1
+        # rid legato al contesto corrente (show_listing); l'incremento NON e'
+        # qui, altrimenti ogni espansione di una cartella invaliderebbe i
+        # caricamenti pendenti delle altre (vedi ripristino dopo cambio tab)
         rid = self.req_id
         # fila dummy para poder expandir
         if parent_iter is None:
@@ -4225,24 +4239,43 @@ class FilePanel(Gtk.Box):
                                                        '' if e['dir'] else _human_size(e['size'])])
                         if e['dir']:
                             self.store.append(it, ['', '', '', False, ''])
+                # ripristina le cartelle che erano aperte in questo terminale
+                # (es. dopo un cambio tab e ritorno): re-espandendole si
+                # rilancia anche il caricamento lazy dei loro contenuti
+                for pstr in list(ctx.get('expanded', set())):
+                    tp = Gtk.TreePath.new_from_string(pstr)
+                    if self.store.get_iter(tp) is not None:
+                        self.tree.expand_row(tp, False)
                 return False
             self._async_list(path, done)
         else:
             def done(entries, err):
                 if self.wmain is None or self.term is None or not parent_iter: return False
                 if rid != self.req_id: return False
-                try:
-                    self.store.remove(self.store.iter_children(parent_iter))
-                except Exception:
-                    pass
-                for e in entries or []:
-                    if e['name'].startswith('.') and not ctx.get('show_hidden'):
-                        continue
+                visible = [e for e in (entries or [])
+                           if not (e['name'].startswith('.') and not ctx.get('show_hidden'))]
+                # la riga era espansa (chi l'ha espansa ha scatenato questo load);
+                # la rimozione della fila dummy la lascerebbe senza figli e GTK
+                # la richiuderebbe, quindi ricordiamo lo stato e lo ripristiniamo
+                p = self.store.get_path(parent_iter)
+                was_expanded = bool(p and self.tree.row_expanded(p))
+                # rimuovi la fila dummy solo se ci sono voci reali da mostrare;
+                # per una cartella vuota tienila come segnaposto così resta espansa
+                if visible:
+                    try:
+                        self.store.remove(self.store.iter_children(parent_iter))
+                    except Exception:
+                        pass
+                for e in visible:
                     it = self.store.append(parent_iter, ['folder' if e['dir'] else 'text-x-generic',
                                     e['name'] + ('/' if e['dir'] else ''), e['path'], e['dir'],
                                     '' if e['dir'] else _human_size(e['size'])])
                     if e['dir']:
                         self.store.append(it, ['', '', '', False, ''])
+                if was_expanded:
+                    p2 = self.store.get_path(parent_iter)
+                    if p2 and self.store.iter_has_child(parent_iter):
+                        self.tree.expand_row(p2, False)
                 return False
             self._async_list(path, done)
 
@@ -4262,7 +4295,15 @@ class FilePanel(Gtk.Box):
     def on_row_expanded(self, tree, row, path_treepath):
         node = self.store.get_iter(path_treepath)
         p = self.store.get_value(node, FilePanel.COL_PATH)
+        # ricorda quali cartelle sono aperte per questo terminale, così se il
+        # contesto viene rimosso e ripristinato (es. cambio tab) le riapriamo
+        if self.term is not None:
+            self.get_ctx(self.term)['expanded'].add(path_treepath.to_string())
         self._populate(node, p)
+
+    def on_row_collapsed(self, tree, row, path_treepath):
+        if self.term is not None:
+            self.get_ctx(self.term)['expanded'].discard(path_treepath.to_string())
     #-- }
 
     #-- navegacion {
@@ -4428,16 +4469,28 @@ class FilePanel(Gtk.Box):
 
     #-- doble clic: abrir/editar {
     def _on_tree_button_press(self, widget, event):
-        # il doppio/triplo click va gestito dal tree (row-activated):
-        # se torna True non raggiunge mai il gestore di hpMain
+        # il doppio click e' gestito da row-activated (che apre la cartella o
+        # il file); qui ci limitiamo a bloccare la propagazione a hpMain che
+        # altrimenti userebbe l'evento per toggleare i pannelli, come fa treeServers
+        return event.type in (Gdk.EventType._2BUTTON_PRESS, Gdk.EventType._3BUTTON_PRESS)
+
+    def _on_panel_button_press(self, widget, event):
+        # rete di sicurezza per i click sulle zone del pannello non coperte
+        # dal tree (placeholder, toolbar, area vuota): non devono mai
+        # toggleare i pannelli tramite hpMain
         return event.type in (Gdk.EventType._2BUTTON_PRESS, Gdk.EventType._3BUTTON_PRESS)
 
     def on_row_activated(self, tree, path_treepath, column):
         it = self.store.get_iter(path_treepath)
+        if not self.store.get_value(it, FilePanel.COL_PATH):
+            return  # segnaposto/fila dummy (es. cartella vuota): niente da aprire
         if not self.store.get_value(it, FilePanel.COL_DIR):
             self.edit_file(self.store.get_value(it, FilePanel.COL_PATH))
         else:
-            tree.toggle_expander(path_treepath)
+            if self.tree.row_expanded(path_treepath):
+                self.tree.collapse_row(path_treepath)
+            else:
+                self.tree.expand_row(path_treepath, False)
 
     def edit_file(self, rpath):
         ctx = self.get_ctx(self.term)
